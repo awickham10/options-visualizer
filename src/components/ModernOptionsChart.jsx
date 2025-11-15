@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from 'react'
+import { HeatmapToggle } from './HeatmapToggle'
 
 export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated, onCellSelect }) {
   const [selectedExpirations, setSelectedExpirations] = useState(new Set())
   const [selectedStrikes, setSelectedStrikes] = useState(new Set())
+  const [heatmapMode, setHeatmapMode] = useState('volume')
 
   const handleExpirationClick = (expDate) => {
     setSelectedExpirations(prev => {
@@ -114,6 +116,8 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           askSize: latestQuote.as || 0,
           lastPrice: latestTrade?.p || 0,
           volume: latestTrade?.s || 0,
+          impliedVolatility: optData.greeks?.implied_volatility || 0,
+          openInterest: optData.openInterest || 0,
           isITM: strike < currentPrice
         }
       })
@@ -220,29 +224,70 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const cellWidth = optionsWidth / expirations.length
   const cellHeight = Math.max(20, chartHeight / strikes.length) // Minimum 20px cell height
 
+  // Calculate intensity based on heatmap mode
+  const calculateIntensity = (cell) => {
+    if (!cell) return 0
+
+    let value = 0
+    let maxValue = 1
+
+    switch (heatmapMode) {
+      case 'volume':
+        value = cell.volume || 0
+        // Find max volume across all cells for normalization
+        maxValue = Math.max(...optionsGrid.flat().filter(c => c).map(c => c.volume || 0), 1)
+        break
+      case 'iv':
+        value = cell.impliedVolatility || 0
+        // IV typically ranges from 0-2 (0-200%)
+        maxValue = 2
+        break
+      case 'oi':
+        value = cell.openInterest || 0
+        // Find max OI across all cells for normalization
+        maxValue = Math.max(...optionsGrid.flat().filter(c => c).map(c => c.openInterest || 0), 1)
+        break
+      default:
+        value = cell.volume || 0
+        maxValue = Math.max(...optionsGrid.flat().filter(c => c).map(c => c.volume || 0), 1)
+    }
+
+    return Math.min(value / maxValue, 1)
+  }
+
   return (
     <div className="relative">
       <div className="bg-white p-12" style={{ border: '1px solid var(--color-border)' }}>
       {/* Header */}
-      <div className="mb-12 flex items-baseline justify-between pb-8" style={{ borderBottom: '1px solid var(--color-border)' }}>
-        <h2 className="text-7xl font-light tracking-[-0.03em]" style={{
-          color: 'var(--color-text-primary)',
-          fontFamily: 'Manrope, sans-serif',
-          fontWeight: 200
-        }}>
-          {symbol}
-        </h2>
-        <div className="text-right">
-          <div className="text-5xl font-light tracking-[-0.02em] mb-1" style={{
+      <div className="mb-12 pb-8" style={{ borderBottom: '1px solid var(--color-border)' }}>
+        <div className="flex items-baseline justify-between mb-8">
+          <h2 className="text-7xl font-light tracking-[-0.03em]" style={{
             color: 'var(--color-text-primary)',
             fontFamily: 'Manrope, sans-serif',
-            fontWeight: 300
+            fontWeight: 200
           }}>
-            ${currentPrice.toFixed(2)}
+            {symbol}
+          </h2>
+          <div className="text-right">
+            <div className="text-5xl font-light tracking-[-0.02em] mb-1" style={{
+              color: 'var(--color-text-primary)',
+              fontFamily: 'Manrope, sans-serif',
+              fontWeight: 300
+            }}>
+              ${currentPrice.toFixed(2)}
+            </div>
+            <div className="text-[10px] uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+              Current
+            </div>
           </div>
-          <div className="text-[10px] uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
-            Current
-          </div>
+        </div>
+
+        {/* Heatmap Mode Toggle */}
+        <div className="flex items-center gap-4">
+          <span className="text-[10px] uppercase tracking-[0.2em] font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>
+            Heatmap
+          </span>
+          <HeatmapToggle mode={heatmapMode} onModeChange={setHeatmapMode} />
         </div>
       </div>
 
@@ -360,13 +405,27 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             if (!cell) return null
 
             const x = marginLeft + historicalWidth + (colIdx * cellWidth)
-            const value = parseFloat(cell.price)
-            const maxValue = 40
-            const intensity = Math.min(value / maxValue, 1)
+            const intensity = calculateIntensity(cell)
 
             const expDate = expirations[colIdx]
             const isExpSelected = selectedExpirations.has(expDate.toISOString())
             const isHighlighted = isStrikeSelected || isExpSelected
+
+            // Calculate white-to-blue gradient color
+            // Low intensity = white (#FFFFFF), High intensity = accent blue (#0047FF)
+            const getHeatmapColor = (intensity) => {
+              if (intensity === 0) return '#FAFAFA'
+
+              // Interpolate between white (255,255,255) and accent blue (0,71,255)
+              const r = Math.round(255 - (255 * intensity))
+              const g = Math.round(255 - (184 * intensity))
+              const b = 255
+
+              return `rgb(${r}, ${g}, ${b})`
+            }
+
+            const cellColor = isHighlighted ? "#0047FF" : getHeatmapColor(intensity)
+            const cellOpacity = isHighlighted ? 0.2 : 1
 
             return (
               <g
@@ -379,8 +438,8 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                   y={y - cellHeight / 2 + 2}
                   width={cellWidth - 4}
                   height={cellHeight - 4}
-                  fill={isHighlighted ? "#0047FF" : "#0A0A0A"}
-                  opacity={isHighlighted ? 0.15 : (intensity * 0.12 + 0.02)}
+                  fill={cellColor}
+                  opacity={cellOpacity}
                   rx={0}
                 />
                 <text
@@ -389,7 +448,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                   textAnchor="middle"
                   fontSize="11"
                   fontWeight={isHighlighted ? "600" : "500"}
-                  fill={isHighlighted ? "#0047FF" : "#0A0A0A"}
+                  fill={intensity > 0.5 ? "#FFFFFF" : (isHighlighted ? "#0047FF" : "#0A0A0A")}
                   fontFamily="DM Sans, sans-serif"
                   letterSpacing="0.01em"
                 >
