@@ -1,6 +1,33 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 
 export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated }) {
+  const [selectedExpirations, setSelectedExpirations] = useState(new Set())
+  const [selectedStrikes, setSelectedStrikes] = useState(new Set())
+
+  const handleExpirationClick = (expDate) => {
+    setSelectedExpirations(prev => {
+      const newSet = new Set(prev)
+      const dateKey = expDate.toISOString()
+      if (newSet.has(dateKey)) {
+        newSet.delete(dateKey)
+      } else {
+        newSet.add(dateKey)
+      }
+      return newSet
+    })
+  }
+
+  const handleStrikeClick = (strike) => {
+    setSelectedStrikes(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(strike)) {
+        newSet.delete(strike)
+      } else {
+        newSet.add(strike)
+      }
+      return newSet
+    })
+  }
   const chartData = useMemo(() => {
     if (!data || data.length === 0) return null
 
@@ -179,22 +206,27 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const cellHeight = Math.max(20, chartHeight / strikes.length) // Minimum 20px cell height
 
   return (
-    <div className="relative bg-white rounded-3xl shadow-xl p-8 border border-gray-100">
+    <div className="relative bg-white p-12" style={{ border: '1px solid var(--color-border)' }}>
       {/* Header */}
-      <div className="mb-8 flex items-baseline justify-between">
-        <h2 className="text-5xl font-bold text-gray-900">
+      <div className="mb-12 flex items-baseline justify-between pb-8" style={{ borderBottom: '1px solid var(--color-border)' }}>
+        <h2 className="text-7xl font-light tracking-[-0.03em]" style={{
+          color: 'var(--color-text-primary)',
+          fontFamily: 'Manrope, sans-serif',
+          fontWeight: 200
+        }}>
           {symbol}
         </h2>
         <div className="text-right">
-          <div className="text-4xl font-bold text-gray-900">
+          <div className="text-5xl font-light tracking-[-0.02em] mb-1" style={{
+            color: 'var(--color-text-primary)',
+            fontFamily: 'Manrope, sans-serif',
+            fontWeight: 300
+          }}>
             ${currentPrice.toFixed(2)}
           </div>
-          <div className="text-sm text-gray-500 uppercase tracking-wider">Current Price</div>
-          {lastUpdated && (
-            <div className="text-xs text-gray-400 mt-1">
-              As of {new Date(lastUpdated).toLocaleString()}
-            </div>
-          )}
+          <div className="text-[10px] uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+            Current
+          </div>
         </div>
       </div>
 
@@ -210,7 +242,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         {/* Grid lines */}
         {strikes.map((strike, idx) => {
           const y = priceScale(strike)
-          const isCurrentPrice = Math.abs(strike - currentPrice) < (maxPrice - minPrice) / 20
+          const isSelected = selectedStrikes.has(strike)
           return (
             <g key={`grid-${idx}`}>
               <line
@@ -218,19 +250,21 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                 y1={y}
                 x2={width - marginRight}
                 y2={y}
-                stroke={isCurrentPrice ? "#3b82f6" : "#e5e7eb"}
-                strokeWidth={isCurrentPrice ? 2 : 1}
-                strokeDasharray={isCurrentPrice ? "8,4" : "none"}
-                opacity={isCurrentPrice ? 1 : 0.5}
+                stroke={isSelected ? "#0047FF" : "#E8E8E8"}
+                strokeWidth={isSelected ? 1 : 0.5}
+                opacity={isSelected ? 0.4 : 0.3}
               />
               <text
                 x={marginLeft - 15}
-                y={y + 5}
+                y={y + 4}
                 textAnchor="end"
-                fontSize="14"
-                fontWeight={isCurrentPrice ? "700" : "500"}
-                fill={isCurrentPrice ? "#3b82f6" : "#6b7280"}
-                fontFamily="system-ui, -apple-system, sans-serif"
+                fontSize="11"
+                fontWeight={isSelected ? "600" : "400"}
+                fill={isSelected ? "#0047FF" : "#A3A3A3"}
+                fontFamily="DM Sans, sans-serif"
+                letterSpacing="0.02em"
+                style={{ cursor: 'pointer' }}
+                onClick={() => handleStrikeClick(strike)}
               >
                 ${strike.toFixed(0)}
               </text>
@@ -242,12 +276,37 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         <path
           d={linePath}
           fill="none"
-          stroke="#3b82f6"
-          strokeWidth={3}
+          stroke="#0A0A0A"
+          strokeWidth={1.5}
           strokeLinecap="round"
           strokeLinejoin="round"
-          filter="url(#shadow)"
         />
+
+        {/* Current price line */}
+        <line
+          x1={marginLeft}
+          y1={priceScale(currentPrice)}
+          x2={width - marginRight}
+          y2={priceScale(currentPrice)}
+          stroke="#0047FF"
+          strokeWidth={1}
+          strokeDasharray="4,4"
+          opacity={1}
+        />
+
+        {/* Current price label */}
+        <text
+          x={marginLeft - 15}
+          y={priceScale(currentPrice) + 4}
+          textAnchor="end"
+          fontSize="11"
+          fontWeight="500"
+          fill="#0047FF"
+          fontFamily="DM Sans, sans-serif"
+          letterSpacing="0.02em"
+        >
+          ${currentPrice.toFixed(2)}
+        </text>
 
         {/* Divider */}
         <line
@@ -255,9 +314,9 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           y1={marginTop}
           x2={marginLeft + historicalWidth}
           y2={height - marginBottom}
-          stroke="#d1d5db"
-          strokeWidth={2}
-          opacity="0.6"
+          stroke="#E8E8E8"
+          strokeWidth={1}
+          opacity="0.5"
         />
 
         {/* Options cells or message */}
@@ -266,17 +325,19 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             x={marginLeft + historicalWidth + optionsWidth / 2}
             y={height / 2}
             textAnchor="middle"
-            fontSize="16"
-            fill="#9ca3af"
-            fontWeight="500"
-            fontFamily="system-ui, -apple-system, sans-serif"
+            fontSize="12"
+            fill="#A3A3A3"
+            fontWeight="400"
+            fontFamily="DM Sans, sans-serif"
+            letterSpacing="0.05em"
           >
-            No options data available
+            NO OPTIONS DATA
           </text>
         ) : (
           optionsGrid.map((row, rowIdx) => {
           const strike = strikes[rowIdx]
           const y = priceScale(strike)
+          const isStrikeSelected = selectedStrikes.has(strike)
 
           return row.map((cell, colIdx) => {
             // Skip rendering if no data
@@ -287,25 +348,30 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             const maxValue = 40
             const intensity = Math.min(value / maxValue, 1)
 
+            const expDate = expirations[colIdx]
+            const isExpSelected = selectedExpirations.has(expDate.toISOString())
+            const isHighlighted = isStrikeSelected || isExpSelected
+
             return (
               <g key={`cell-${rowIdx}-${colIdx}`}>
                 <rect
-                  x={x + 3}
-                  y={y - cellHeight / 2 + 3}
-                  width={cellWidth - 6}
-                  height={cellHeight - 6}
-                  fill={cell.isITM ? "#10b981" : "#ef4444"}
-                  opacity={intensity * 0.2 + 0.05}
-                  rx={6}
+                  x={x + 2}
+                  y={y - cellHeight / 2 + 2}
+                  width={cellWidth - 4}
+                  height={cellHeight - 4}
+                  fill={isHighlighted ? "#0047FF" : "#0A0A0A"}
+                  opacity={isHighlighted ? 0.15 : (intensity * 0.12 + 0.02)}
+                  rx={0}
                 />
                 <text
                   x={x + cellWidth / 2}
-                  y={y + 5}
+                  y={y + 4}
                   textAnchor="middle"
-                  fontSize="13"
-                  fontWeight="600"
-                  fill={cell.isITM ? "#059669" : "#dc2626"}
-                  fontFamily="system-ui, -apple-system, sans-serif"
+                  fontSize="11"
+                  fontWeight={isHighlighted ? "600" : "500"}
+                  fill={isHighlighted ? "#0047FF" : "#0A0A0A"}
+                  fontFamily="DM Sans, sans-serif"
+                  letterSpacing="0.01em"
                 >
                   ${typeof cell.price === 'number' ? cell.price.toFixed(2) : cell.price}
                 </text>
@@ -323,12 +389,13 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
               x={x}
               y={height - marginBottom + 30}
               textAnchor="middle"
-              fontSize="13"
-              fill="#6b7280"
-              fontWeight="500"
-              fontFamily="system-ui, -apple-system, sans-serif"
+              fontSize="10"
+              fill="#A3A3A3"
+              fontWeight="400"
+              fontFamily="DM Sans, sans-serif"
+              letterSpacing="0.05em"
             >
-              {point.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              {point.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}
             </text>
           )
         })}
@@ -336,18 +403,22 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         {/* X-axis labels - Options */}
         {expirations.map((expDate, idx) => {
           const x = marginLeft + historicalWidth + (idx * cellWidth) + cellWidth / 2
+          const isSelected = selectedExpirations.has(expDate.toISOString())
           return (
             <text
               key={`exp-label-${idx}`}
               x={x}
               y={height - marginBottom + 30}
               textAnchor="middle"
-              fontSize="13"
-              fontWeight="600"
-              fill="#6b7280"
-              fontFamily="system-ui, -apple-system, sans-serif"
+              fontSize="10"
+              fontWeight={isSelected ? "700" : "500"}
+              fill={isSelected ? "#0047FF" : "#6B6B6B"}
+              fontFamily="DM Sans, sans-serif"
+              letterSpacing="0.05em"
+              style={{ cursor: 'pointer' }}
+              onClick={() => handleExpirationClick(expDate)}
             >
-              {expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              {expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}
             </text>
           )
         })}
@@ -357,45 +428,49 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           x={marginLeft + historicalWidth / 2}
           y={height - 50}
           textAnchor="middle"
-          fontSize="14"
-          fill="#9ca3af"
+          fontSize="9"
+          fill="#A3A3A3"
           fontWeight="500"
-          fontFamily="system-ui, -apple-system, sans-serif"
+          fontFamily="DM Sans, sans-serif"
+          letterSpacing="0.15em"
         >
-          Historical Price
+          HISTORICAL
         </text>
 
         <text
           x={marginLeft + historicalWidth + optionsWidth / 2}
           y={height - 50}
           textAnchor="middle"
-          fontSize="14"
-          fill="#9ca3af"
+          fontSize="9"
+          fill="#A3A3A3"
           fontWeight="500"
-          fontFamily="system-ui, -apple-system, sans-serif"
+          fontFamily="DM Sans, sans-serif"
+          letterSpacing="0.15em"
         >
-          Options Expirations
+          EXPIRATIONS
         </text>
         </svg>
       </div>
 
       {/* Legend */}
-      <div className="mt-8 flex items-center justify-center gap-8 text-sm">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-1 bg-blue-500 rounded-full" />
-          <span className="text-gray-700 font-medium">Historical Price</span>
+      <div className="mt-12 pt-8 flex items-center justify-end gap-8" style={{ borderTop: '1px solid var(--color-border)' }}>
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-px" style={{ background: 'var(--color-text-primary)' }} />
+          <span className="text-[10px] uppercase tracking-[0.15em] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+            Price
+          </span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 border-2 border-blue-500 border-dashed rounded" />
-          <span className="text-gray-700 font-medium">Current Price</span>
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-px" style={{ background: 'var(--color-accent)', borderTop: '1px dashed var(--color-accent)' }} />
+          <span className="text-[10px] uppercase tracking-[0.15em] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+            Current
+          </span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-3 bg-emerald-500 rounded opacity-30" />
-          <span className="text-gray-700 font-medium">ITM Options</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-3 bg-red-500 rounded opacity-30" />
-          <span className="text-gray-700 font-medium">OTM Options</span>
+        <div className="flex items-center gap-3">
+          <div className="w-6 h-3" style={{ background: 'var(--color-text-primary)', opacity: 0.08 }} />
+          <span className="text-[10px] uppercase tracking-[0.15em] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+            Intensity
+          </span>
         </div>
       </div>
     </div>

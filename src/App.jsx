@@ -138,78 +138,94 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-6 py-12 max-w-[1600px]">
+    <div className="min-h-screen" style={{ background: 'var(--color-bg)' }}>
+      <div className="container mx-auto px-8 py-16 max-w-[1800px]">
         {/* Header */}
-        <header className="mb-12">
-          <div className="flex items-center justify-between mb-12">
-            <div className="flex items-center gap-4">
-              <div className="p-4 bg-blue-500 rounded-2xl shadow-lg">
-                <TrendingUp className="w-8 h-8 text-white" strokeWidth={2.5} />
-              </div>
-              <div>
-                <h1 className="text-6xl font-bold text-gray-900">
-                  Options Visualizer
-                </h1>
-                <p className="text-gray-500 text-xl mt-2">Real-time market intelligence</p>
-              </div>
+        <header className="mb-20">
+          <div className="flex items-end justify-between mb-16 pb-8" style={{ borderBottom: '1px solid var(--color-border)' }}>
+            <div>
+              <h1 className="text-[84px] font-light tracking-[-0.02em] leading-none mb-3" style={{
+                color: 'var(--color-text-primary)',
+                fontFamily: 'Manrope, sans-serif',
+                fontWeight: 300
+              }}>
+                Options
+              </h1>
+              <p className="text-sm uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+                Market Visualization
+              </p>
             </div>
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-3 px-5 py-3 bg-white rounded-full border-2 border-gray-200 shadow-sm">
-                <div className={`w-2.5 h-2.5 rounded-full ${isStreaming ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`} />
-                <span className="text-sm font-medium text-gray-700">
-                  {isStreaming ? 'Live Data' : 'REST API'}
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex items-center gap-3">
+                <div className={`w-1.5 h-1.5 ${isStreaming ? 'animate-pulse' : ''}`} style={{
+                  background: isStreaming ? 'var(--color-accent)' : 'var(--color-text-tertiary)'
+                }} />
+                <span className="text-xs uppercase tracking-[0.15em] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                  {isStreaming ? 'Live' : 'Static'}
                 </span>
               </div>
               {lastUpdated && (
-                <div className="text-xs text-gray-500 text-right">
-                  Updated: {new Date(lastUpdated).toLocaleTimeString()}
+                <div className="text-[10px] tracking-[0.1em] uppercase" style={{ color: 'var(--color-text-tertiary)' }}>
+                  {new Date(lastUpdated).toLocaleTimeString()}
                 </div>
               )}
             </div>
           </div>
 
           {/* Search */}
-          <div className="bg-white rounded-2xl p-8 border-2 border-gray-200 shadow-lg">
-            <form onSubmit={handleSubmit} className="flex gap-4">
+          <div className="bg-white p-1" style={{ border: '1px solid var(--color-border)' }}>
+            <form onSubmit={handleSubmit} className="flex gap-1">
               <div className="flex-1 relative">
-                <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Enter symbol (AAPL, TSLA, SPY...)"
+                  placeholder="SYMBOL"
                   value={symbol}
                   onChange={(e) => setSymbol(e.target.value.toUpperCase())}
                   disabled={loading}
-                  className="w-full pl-14 pr-6 py-5 bg-gray-50 border-2 border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:bg-white transition-all disabled:opacity-50 text-lg font-medium"
+                  className="w-full px-6 py-6 text-2xl font-light tracking-[-0.01em] placeholder:font-light transition-all disabled:opacity-50 focus:outline-none"
+                  style={{
+                    background: 'transparent',
+                    color: 'var(--color-text-primary)',
+                    fontFamily: 'Manrope, sans-serif',
+                    border: 'none'
+                  }}
                 />
               </div>
               <button
                 type="submit"
                 disabled={loading}
-                className="px-10 py-5 bg-blue-500 text-white font-bold rounded-xl hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40"
+                className="px-12 py-6 text-sm uppercase tracking-[0.2em] font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-80"
+                style={{
+                  background: 'var(--color-accent)',
+                  color: 'white'
+                }}
               >
                 {loading ? (
                   <div className="flex items-center gap-2">
-                    <Activity className="w-5 h-5 animate-spin" />
-                    Loading
+                    <Activity className="w-4 h-4 animate-spin" strokeWidth={1.5} />
+                    <span>Analyzing</span>
                   </div>
                 ) : (
                   'Analyze'
                 )}
               </button>
             </form>
-
-            {error && (
-              <div className="mt-4 p-4 bg-red-50 border-2 border-red-200 rounded-xl text-red-600 font-medium">
-                {error}
-              </div>
-            )}
           </div>
+
+          {error && (
+            <div className="mt-4 px-6 py-4 text-sm" style={{
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-accent)',
+              color: 'var(--color-text-primary)'
+            }}>
+              {error}
+            </div>
+          )}
         </header>
 
         {/* Chart */}
         {currentSymbol && (
-          <div className="animate-fadeIn">
+          <div className="animate-fade-in-up">
             <ModernOptionsChart
               data={historicalData}
               symbol={currentSymbol}
@@ -221,34 +237,17 @@ function App() {
 
         {/* Empty State */}
         {!currentSymbol && !loading && (
-          <div className="mt-32 text-center">
-            <div className="inline-block p-8 bg-white rounded-3xl border-2 border-gray-200 mb-6 shadow-lg">
-              <Activity className="w-20 h-20 text-gray-300 mx-auto" strokeWidth={2} />
-            </div>
-            <h3 className="text-3xl font-bold text-gray-900 mb-3">Ready to analyze</h3>
-            <p className="text-gray-500 text-lg max-w-md mx-auto">
-              Enter a stock symbol above to visualize historical prices and options data
+          <div className="mt-48 text-center">
+            <div className="w-1 h-32 mx-auto mb-12" style={{ background: 'var(--color-border)' }} />
+            <h3 className="text-xl uppercase tracking-[0.3em] font-light mb-4" style={{ color: 'var(--color-text-tertiary)' }}>
+              Ready
+            </h3>
+            <p className="text-sm tracking-[0.05em] max-w-sm mx-auto" style={{ color: 'var(--color-text-secondary)' }}>
+              Enter a stock symbol to begin visualization
             </p>
           </div>
         )}
       </div>
-
-      <style jsx>{`
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        .animate-fadeIn {
-          animation: fadeIn 0.5s ease-out;
-        }
-      `}</style>
     </div>
   )
 }
