@@ -83,11 +83,66 @@ app.get('/api/quote/:symbol', async (req, res) => {
   }
 });
 
+// Helper function to fetch both puts and calls
+async function fetchOptionsData(symbol, expirationDateGte, expirationDateLte) {
+  const apiUrl = `https://data.alpaca.markets/v1beta1/options/snapshots/${symbol}`;
+
+  // Fetch calls
+  const callParams = new URLSearchParams({
+    type: 'call',
+    expiration_date_gte: expirationDateGte,
+    expiration_date_lte: expirationDateLte,
+    limit: 1000
+  });
+
+  // Fetch puts
+  const putParams = new URLSearchParams({
+    type: 'put',
+    expiration_date_gte: expirationDateGte,
+    expiration_date_lte: expirationDateLte,
+    limit: 1000
+  });
+
+  const [callResponse, putResponse] = await Promise.all([
+    fetch(`${apiUrl}?${callParams}`, {
+      headers: {
+        'APCA-API-KEY-ID': process.env.ALPACA_API_KEY,
+        'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET
+      }
+    }),
+    fetch(`${apiUrl}?${putParams}`, {
+      headers: {
+        'APCA-API-KEY-ID': process.env.ALPACA_API_KEY,
+        'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET
+      }
+    })
+  ]);
+
+  const [callData, putData] = await Promise.all([
+    callResponse.json(),
+    putResponse.json()
+  ]);
+
+  if (!callResponse.ok) {
+    throw new Error(callData.message || 'Failed to fetch call options');
+  }
+  if (!putResponse.ok) {
+    throw new Error(putData.message || 'Failed to fetch put options');
+  }
+
+  // Merge both calls and puts
+  const allSnapshots = {
+    ...(callData.snapshots || {}),
+    ...(putData.snapshots || {})
+  };
+
+  return allSnapshots;
+}
+
 // Get options chain/snapshots for a symbol
 app.get('/api/options/:symbol', async (req, res) => {
   try {
     const { symbol } = req.params;
-    const { type = 'call' } = req.query; // Default to call options
 
     // Calculate date range - start from 2 weeks out to avoid near-term expiry
     // and go out 6 months for longer-term options
@@ -101,29 +156,9 @@ app.get('/api/options/:symbol', async (req, res) => {
     const expirationDateGte = twoWeeksFromNow.toISOString().split('T')[0];
     const expirationDateLte = sixMonthsLater.toISOString().split('T')[0];
 
-    // Make direct API call to Alpaca options snapshots endpoint
-    const apiUrl = `https://data.alpaca.markets/v1beta1/options/snapshots/${symbol}`;
-    const params = new URLSearchParams({
-      type,
-      expiration_date_gte: expirationDateGte,
-      expiration_date_lte: expirationDateLte,
-      limit: 1000
-    });
+    const allSnapshots = await fetchOptionsData(symbol, expirationDateGte, expirationDateLte);
 
-    const response = await fetch(`${apiUrl}?${params}`, {
-      headers: {
-        'APCA-API-KEY-ID': process.env.ALPACA_API_KEY,
-        'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET
-      }
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.message || 'Failed to fetch options data');
-    }
-
-    res.json({ success: true, data: data.snapshots || [] });
+    res.json({ success: true, data: allSnapshots });
   } catch (error) {
     console.error('Error fetching options:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -266,26 +301,15 @@ wss.on('connection', (ws) => {
           const sixMonthsLater = new Date(today);
           sixMonthsLater.setMonth(today.getMonth() + 6);
 
-          const params = new URLSearchParams({
-            type: 'call',
-            expiration_date_gte: twoWeeksFromNow.toISOString().split('T')[0],
-            expiration_date_lte: sixMonthsLater.toISOString().split('T')[0],
-            limit: 1000
-          });
+          const expirationDateGte = twoWeeksFromNow.toISOString().split('T')[0];
+          const expirationDateLte = sixMonthsLater.toISOString().split('T')[0];
 
-          const response = await fetch(`https://data.alpaca.markets/v1beta1/options/snapshots/${symbol}?${params}`, {
-            headers: {
-              'APCA-API-KEY-ID': process.env.ALPACA_API_KEY,
-              'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET
-            }
-          });
+          const allSnapshots = await fetchOptionsData(symbol, expirationDateGte, expirationDateLte);
 
-          const optionsData = await response.json();
-
-          if (optionsData.snapshots && ws.readyState === WebSocket.OPEN) {
+          if (allSnapshots && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
               type: 'options_snapshot',
-              data: optionsData.snapshots
+              data: allSnapshots
             }));
           }
         } catch (error) {

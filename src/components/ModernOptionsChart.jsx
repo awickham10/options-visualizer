@@ -82,7 +82,11 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         allStrikes.add(strike)
       })
 
-      // Second pass: populate options data for filtered strikes
+      // Second pass: populate options data and track puts/calls separately
+      const putCallData = {} // Track puts and calls separately for P/C ratio
+      let putCount = 0
+      let callCount = 0
+
       Object.entries(optionsData).forEach(([contractSymbol, optData]) => {
         const match = contractSymbol.match(/^([A-Z]+)(\d{6})([CP])(\d{8})$/)
         if (!match) return
@@ -104,23 +108,119 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           optionsByExp[expDate] = {}
         }
 
-        optionsByExp[expDate][strike] = {
-          strike,
-          expDate: new Date(expDate),
-          contractSymbol,
-          optionType,
-          price: latestQuote.ap || latestQuote.bp || 0,
-          bid: latestQuote.bp || 0,
-          ask: latestQuote.ap || 0,
-          bidSize: latestQuote.bs || 0,
-          askSize: latestQuote.as || 0,
-          lastPrice: latestTrade?.p || 0,
-          volume: latestTrade?.s || 0,
-          impliedVolatility: optData.greeks?.implied_volatility || 0,
-          openInterest: optData.openInterest || 0,
-          isITM: strike < currentPrice
+        // Track put/call data for ratio calculation
+        const key = `${expDate}-${strike}`
+        if (!putCallData[key]) {
+          putCallData[key] = { putVolume: 0, callVolume: 0, putOI: 0, callOI: 0 }
+        }
+
+        const volume = latestTrade?.s || 0
+        const oi = optData.openInterest || 0
+
+        // Debug: Log first few entries to see what data we have
+        if ((putCount + callCount) < 5) {
+          console.log(`Sample option ${contractSymbol}:`, {
+            type: optionType,
+            volume,
+            oi,
+            latestTrade: latestTrade ? { p: latestTrade.p, s: latestTrade.s, t: latestTrade.t } : null
+          })
+        }
+
+        if (optionType === 'P') {
+          putCallData[key].putVolume = volume
+          putCallData[key].putOI = oi
+          putCount++
+        } else if (optionType === 'C') {
+          putCallData[key].callVolume = volume
+          putCallData[key].callOI = oi
+          callCount++
+        }
+
+        // Store the option data (we'll use the call for display, but have both for ratio)
+        if (!optionsByExp[expDate][strike] || optionType === 'C') {
+          optionsByExp[expDate][strike] = {
+            strike,
+            expDate: new Date(expDate),
+            contractSymbol,
+            optionType,
+            price: latestQuote.ap || latestQuote.bp || 0,
+            bid: latestQuote.bp || 0,
+            ask: latestQuote.ap || 0,
+            bidSize: latestQuote.bs || 0,
+            askSize: latestQuote.as || 0,
+            lastPrice: latestTrade?.p || 0,
+            volume: latestTrade?.s || 0,
+            impliedVolatility: optData.greeks?.implied_volatility || 0,
+            openInterest: optData.openInterest || 0,
+            isITM: strike < currentPrice
+          }
         }
       })
+
+      console.log(`Options data summary: ${putCount} puts, ${callCount} calls`)
+
+      // Calculate P/C ratios and add to options data
+      let debugCount = 0
+      let totalEntries = 0
+      let entriesWithData = 0
+      let entriesWithBothPutAndCall = 0
+
+      // First, let's log a sample of putCallData to understand the structure
+      const sampleKeys = Object.keys(putCallData).slice(0, 3)
+      console.log('Sample putCallData entries:', sampleKeys.map(k => ({
+        key: k,
+        data: putCallData[k]
+      })))
+
+      Object.entries(putCallData).forEach(([key, data]) => {
+        // Key format is "YYYY-MM-DD-strike", so split on last hyphen
+        const lastHyphenIndex = key.lastIndexOf('-')
+        const expDateStr = key.substring(0, lastHyphenIndex)
+        const strikeStr = key.substring(lastHyphenIndex + 1)
+        const strike = parseFloat(strikeStr)
+        totalEntries++
+
+        const hasPutData = data.putVolume > 0 || data.putOI > 0
+        const hasCallData = data.callVolume > 0 || data.callOI > 0
+
+        if (hasPutData || hasCallData) {
+          entriesWithData++
+        }
+
+        if (hasPutData && hasCallData) {
+          entriesWithBothPutAndCall++
+
+          // Log first 10 entries that have BOTH put and call data
+          if (debugCount < 10) {
+            console.log(`P/C Data for ${key}:`, {
+              putVolume: data.putVolume,
+              callVolume: data.callVolume,
+              putOI: data.putOI,
+              callOI: data.callOI
+            })
+            debugCount++
+          }
+        }
+
+        if (optionsByExp[expDateStr]?.[strike]) {
+          // Calculate P/C ratio based on volume (put volume / call volume)
+          const pcRatioVolume = data.callVolume > 0
+            ? data.putVolume / data.callVolume
+            : (data.putVolume > 0 ? 2 : 0) // If only puts exist, show high ratio
+
+          // Calculate P/C ratio based on open interest
+          const pcRatioOI = data.callOI > 0
+            ? data.putOI / data.callOI
+            : (data.putOI > 0 ? 2 : 0)
+
+          optionsByExp[expDateStr][strike].pcRatioVolume = pcRatioVolume
+          optionsByExp[expDateStr][strike].pcRatioOI = pcRatioOI
+        }
+      })
+
+      console.log(`P/C Summary: ${entriesWithData} of ${totalEntries} strike/exp combinations have data`)
+      console.log(`  - ${entriesWithBothPutAndCall} have BOTH put and call data`)
 
       // Get sorted unique expirations (show all available)
       const expirations = Array.from(allExpirations)
@@ -150,6 +250,21 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           return null
         })
       })
+
+      // Debug: Log first few cells with P/C ratio data
+      let cellsWithPC = 0
+      for (let i = 0; i < Math.min(5, optionsGrid.length); i++) {
+        for (let j = 0; j < Math.min(5, optionsGrid[i].length); j++) {
+          const cell = optionsGrid[i][j]
+          if (cell && cell.pcRatioVolume !== undefined) {
+            console.log(`Cell [${i},${j}] strike=${strikes[i]} has pcRatioVolume:`, cell.pcRatioVolume)
+            cellsWithPC++
+            if (cellsWithPC >= 5) break
+          }
+        }
+        if (cellsWithPC >= 5) break
+      }
+      console.log(`Total cells with pcRatioVolume in grid:`, optionsGrid.flat().filter(c => c && c.pcRatioVolume !== undefined).length)
 
       return {
         historical,
@@ -224,35 +339,65 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const cellWidth = optionsWidth / expirations.length
   const cellHeight = Math.max(20, chartHeight / strikes.length) // Minimum 20px cell height
 
-  // Calculate intensity based on heatmap mode
+  // Helper function to calculate percentile
+  const percentile = (arr, p) => {
+    if (arr.length === 0) return 0
+    const sorted = [...arr].sort((a, b) => a - b)
+    const index = (p / 100) * (sorted.length - 1)
+    const lower = Math.floor(index)
+    const upper = Math.ceil(index)
+    const weight = index % 1
+
+    if (lower === upper) return sorted[lower]
+    return sorted[lower] * (1 - weight) + sorted[upper] * weight
+  }
+
+  // Calculate intensity based on heatmap mode with outlier handling
   const calculateIntensity = (cell) => {
     if (!cell) return 0
 
     let value = 0
+    let minValue = 0
     let maxValue = 1
+
+    const validCells = optionsGrid.flat().filter(c => c)
 
     switch (heatmapMode) {
       case 'volume':
         value = cell.volume || 0
-        // Find max volume across all cells for normalization
-        maxValue = Math.max(...optionsGrid.flat().filter(c => c).map(c => c.volume || 0), 1)
+        const volumes = validCells.map(c => c.volume || 0)
+        minValue = percentile(volumes, 5)  // 5th percentile
+        maxValue = percentile(volumes, 95) || 1  // 95th percentile
         break
       case 'iv':
         value = cell.impliedVolatility || 0
-        // IV typically ranges from 0-2 (0-200%)
-        maxValue = 2
+        const ivs = validCells.map(c => c.impliedVolatility || 0)
+        minValue = percentile(ivs, 5)
+        maxValue = percentile(ivs, 95) || 0.01
         break
       case 'oi':
         value = cell.openInterest || 0
-        // Find max OI across all cells for normalization
-        maxValue = Math.max(...optionsGrid.flat().filter(c => c).map(c => c.openInterest || 0), 1)
+        const ois = validCells.map(c => c.openInterest || 0)
+        minValue = percentile(ois, 5)
+        maxValue = percentile(ois, 95) || 1
+        break
+      case 'pc':
+        value = cell.pcRatioVolume || 0
+        const pcRatios = validCells.map(c => c.pcRatioVolume || 0)
+        minValue = percentile(pcRatios, 5)
+        maxValue = percentile(pcRatios, 95) || 0.01
         break
       default:
         value = cell.volume || 0
-        maxValue = Math.max(...optionsGrid.flat().filter(c => c).map(c => c.volume || 0), 1)
+        const defaultVolumes = validCells.map(c => c.volume || 0)
+        minValue = percentile(defaultVolumes, 5)
+        maxValue = percentile(defaultVolumes, 95) || 1
     }
 
-    return Math.min(value / maxValue, 1)
+    // Normalize to 0-1 range based on percentiles (clamp outliers)
+    if (maxValue === minValue) return 0
+    const intensity = (value - minValue) / (maxValue - minValue)
+    return Math.max(0, Math.min(intensity, 1))  // Clamp to [0, 1]
   }
 
   return (
@@ -452,7 +597,10 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                   fontFamily="DM Sans, sans-serif"
                   letterSpacing="0.01em"
                 >
-                  ${typeof cell.price === 'number' ? cell.price.toFixed(2) : cell.price}
+                  {heatmapMode === 'pc'
+                    ? (cell.pcRatioVolume ? cell.pcRatioVolume.toFixed(2) : '0.00')
+                    : `$${typeof cell.price === 'number' ? cell.price.toFixed(2) : cell.price}`
+                  }
                 </text>
               </g>
             )

@@ -4,7 +4,8 @@ export function HeatmapToggle({ mode, onModeChange }) {
   const modes = [
     { id: 'volume', label: 'Volume' },
     { id: 'iv', label: 'Implied Vol' },
-    { id: 'oi', label: 'Open Interest' }
+    { id: 'oi', label: 'Open Interest' },
+    { id: 'pc', label: 'P/C Ratio' }
   ]
 
   return (
