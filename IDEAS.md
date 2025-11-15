@@ -2,12 +2,12 @@
 
 ## 1. Interactive Features
 
-### Hover Details
+### Hover Details - DONE!
 - Show option details (bid/ask, volume, open interest, Greeks) when hovering over cells
 - Display contract symbol and expiration date
 - Show premium as percentage of stock price
 
-### Click to Highlight
+### Click to Highlight - DONE!
 - Click an expiration date to highlight all options for that date
 - Click a strike price to highlight across all expirations
 - Multi-select with Cmd/Ctrl for comparing specific strikes
@@ -20,7 +20,6 @@
 ### Symbol Search
 - Autocomplete for stock symbols with company names
 - Recent searches history
-- Popular symbols quick access
 
 ---
 

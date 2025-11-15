@@ -11,6 +11,7 @@ function App() {
   const [error, setError] = useState(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
+  const [selectedCell, setSelectedCell] = useState(null)
   const wsRef = useRef(null)
 
   // Check streaming status on mount
@@ -137,6 +138,33 @@ function App() {
     fetchStockData()
   }
 
+  const handleCellSelect = (cell) => {
+    if (!cell) {
+      setSelectedCell(null)
+      return
+    }
+
+    // Toggle: if clicking the same cell, close it
+    if (selectedCell?.contractSymbol === cell.contractSymbol) {
+      setSelectedCell(null)
+      return
+    }
+
+    setSelectedCell(cell)
+  }
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && selectedCell) {
+        setSelectedCell(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedCell])
+
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-bg)' }}>
       <div className="container mx-auto px-8 py-16 max-w-[1800px]">
@@ -231,6 +259,7 @@ function App() {
               symbol={currentSymbol}
               optionsData={optionsData}
               lastUpdated={lastUpdated}
+              onCellSelect={handleCellSelect}
             />
           </div>
         )}
@@ -245,6 +274,126 @@ function App() {
             <p className="text-sm tracking-[0.05em] max-w-sm mx-auto" style={{ color: 'var(--color-text-secondary)' }}>
               Enter a stock symbol to begin visualization
             </p>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom Footer - Option Details */}
+      <div
+        className="fixed left-0 right-0 bottom-0 bg-white transition-all duration-300 ease-out"
+        style={{
+          borderTop: '1px solid var(--color-border)',
+          zIndex: 1000,
+          height: selectedCell ? '200px' : '0px',
+          overflow: 'hidden'
+        }}
+      >
+        {selectedCell && (
+          <div className="h-full relative">
+            {/* Close button - top right */}
+            <button
+              onClick={() => setSelectedCell(null)}
+              className="absolute top-4 right-8 text-xl hover:opacity-60 transition-opacity"
+              style={{ color: 'var(--color-text-tertiary)' }}
+            >
+              ✕
+            </button>
+
+            <div className="max-w-[1800px] mx-auto px-8 py-6 h-full flex items-center gap-12">
+              {/* Left side - Contract info */}
+              <div className="flex-shrink-0">
+                <div className="text-[10px] uppercase tracking-[0.2em] font-semibold mb-2" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Selected Option
+                </div>
+                <div className="text-sm font-mono tracking-tight" style={{ color: 'var(--color-text-primary)' }}>
+                  {selectedCell.contractSymbol}
+                </div>
+              </div>
+
+              <div style={{ width: '1px', height: '120px', background: 'var(--color-border)' }} />
+
+              {/* Right side - Details in horizontal layout */}
+              <div className="flex-1 grid grid-cols-5 gap-8">
+                {/* Strike */}
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                    Strike
+                  </div>
+                  <div className="text-3xl font-light tracking-[-0.02em]" style={{
+                    color: 'var(--color-text-primary)',
+                    fontFamily: 'Manrope, sans-serif',
+                    fontWeight: 300
+                  }}>
+                    ${selectedCell.strike.toFixed(2)}
+                  </div>
+                </div>
+
+                {/* Expiration & Type */}
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                    Expiration
+                  </div>
+                  <div className="text-sm font-medium mb-3" style={{ color: 'var(--color-text-primary)' }}>
+                    {selectedCell.expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </div>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.1em]" style={{
+                    color: selectedCell.isITM ? 'var(--color-accent)' : 'var(--color-text-primary)'
+                  }}>
+                    {selectedCell.isITM ? 'ITM' : 'OTM'}
+                  </div>
+                </div>
+
+                {/* Bid */}
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                    Bid
+                  </div>
+                  <div className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                    ${selectedCell.bid.toFixed(2)}
+                  </div>
+                  <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                    × {selectedCell.bidSize}
+                  </div>
+                </div>
+
+                {/* Ask */}
+                <div>
+                  <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                    Ask
+                  </div>
+                  <div className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                    ${selectedCell.ask.toFixed(2)}
+                  </div>
+                  <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                    × {selectedCell.askSize}
+                  </div>
+                </div>
+
+                {/* Last & Volume */}
+                <div>
+                  {selectedCell.lastPrice > 0 && (
+                    <>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                        Last
+                      </div>
+                      <div className="text-xl font-medium mb-3" style={{ color: 'var(--color-text-primary)' }}>
+                        ${selectedCell.lastPrice.toFixed(2)}
+                      </div>
+                    </>
+                  )}
+                  {selectedCell.volume > 0 && (
+                    <>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        Volume
+                      </div>
+                      <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                        {selectedCell.volume.toLocaleString()}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

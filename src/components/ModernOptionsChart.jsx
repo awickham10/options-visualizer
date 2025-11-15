@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 
-export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated }) {
+export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated, onCellSelect }) {
   const [selectedExpirations, setSelectedExpirations] = useState(new Set())
   const [selectedStrikes, setSelectedStrikes] = useState(new Set())
 
@@ -27,6 +27,12 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
       }
       return newSet
     })
+  }
+
+  const handleCellClick = (cell) => {
+    if (onCellSelect) {
+      onCellSelect(cell)
+    }
   }
   const chartData = useMemo(() => {
     if (!data || data.length === 0) return null
@@ -88,6 +94,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
 
         const strike = parseInt(strikeStr) / 1000
         const latestQuote = optData.latestQuote
+        const latestTrade = optData.latestTrade
 
         if (!latestQuote) return
 
@@ -98,7 +105,15 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         optionsByExp[expDate][strike] = {
           strike,
           expDate: new Date(expDate),
+          contractSymbol,
+          optionType,
           price: latestQuote.ap || latestQuote.bp || 0,
+          bid: latestQuote.bp || 0,
+          ask: latestQuote.ap || 0,
+          bidSize: latestQuote.bs || 0,
+          askSize: latestQuote.as || 0,
+          lastPrice: latestTrade?.p || 0,
+          volume: latestTrade?.s || 0,
           isITM: strike < currentPrice
         }
       })
@@ -206,7 +221,8 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const cellHeight = Math.max(20, chartHeight / strikes.length) // Minimum 20px cell height
 
   return (
-    <div className="relative bg-white p-12" style={{ border: '1px solid var(--color-border)' }}>
+    <div className="relative">
+      <div className="bg-white p-12" style={{ border: '1px solid var(--color-border)' }}>
       {/* Header */}
       <div className="mb-12 flex items-baseline justify-between pb-8" style={{ borderBottom: '1px solid var(--color-border)' }}>
         <h2 className="text-7xl font-light tracking-[-0.03em]" style={{
@@ -353,7 +369,11 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             const isHighlighted = isStrikeSelected || isExpSelected
 
             return (
-              <g key={`cell-${rowIdx}-${colIdx}`}>
+              <g
+                key={`cell-${rowIdx}-${colIdx}`}
+                onClick={() => handleCellClick(cell)}
+                style={{ cursor: 'pointer' }}
+              >
                 <rect
                   x={x + 2}
                   y={y - cellHeight / 2 + 2}
@@ -449,6 +469,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         >
           EXPIRATIONS
         </text>
+
         </svg>
       </div>
 
@@ -472,6 +493,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             Intensity
           </span>
         </div>
+      </div>
       </div>
     </div>
   )
