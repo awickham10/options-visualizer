@@ -1,10 +1,12 @@
 import React, { useMemo, useState } from 'react'
 import { HeatmapToggle } from './HeatmapToggle'
+import { CallPutToggle } from './CallPutToggle'
 
 export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated, onCellSelect }) {
   const [selectedExpirations, setSelectedExpirations] = useState(new Set())
   const [selectedStrikes, setSelectedStrikes] = useState(new Set())
   const [heatmapMode, setHeatmapMode] = useState('volume')
+  const [optionType, setOptionType] = useState('call')
 
   const handleExpirationClick = (expDate) => {
     setSelectedExpirations(prev => {
@@ -137,24 +139,27 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           callCount++
         }
 
-        // Store the option data (we'll use the call for display, but have both for ratio)
-        if (!optionsByExp[expDate][strike] || optionType === 'C') {
-          optionsByExp[expDate][strike] = {
-            strike,
-            expDate: new Date(expDate),
-            contractSymbol,
-            optionType,
-            price: latestQuote.ap || latestQuote.bp || 0,
-            bid: latestQuote.bp || 0,
-            ask: latestQuote.ap || 0,
-            bidSize: latestQuote.bs || 0,
-            askSize: latestQuote.as || 0,
-            lastPrice: latestTrade?.p || 0,
-            volume: latestTrade?.s || 0,
-            impliedVolatility: optData.greeks?.implied_volatility || 0,
-            openInterest: optData.openInterest || 0,
-            isITM: strike < currentPrice
-          }
+        // Store both calls and puts separately
+        if (!optionsByExp[expDate][strike]) {
+          optionsByExp[expDate][strike] = {}
+        }
+
+        const optionKey = optionType === 'C' ? 'call' : 'put'
+        optionsByExp[expDate][strike][optionKey] = {
+          strike,
+          expDate: new Date(expDate),
+          contractSymbol,
+          optionType,
+          price: latestQuote.ap || latestQuote.bp || 0,
+          bid: latestQuote.bp || 0,
+          ask: latestQuote.ap || 0,
+          bidSize: latestQuote.bs || 0,
+          askSize: latestQuote.as || 0,
+          lastPrice: latestTrade?.p || 0,
+          volume: latestTrade?.s || 0,
+          impliedVolatility: optData.greeks?.implied_volatility || 0,
+          openInterest: optData.openInterest || 0,
+          isITM: optionType === 'C' ? strike < currentPrice : strike > currentPrice
         }
       })
 
@@ -214,8 +219,15 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             ? data.putOI / data.callOI
             : (data.putOI > 0 ? 2 : 0)
 
-          optionsByExp[expDateStr][strike].pcRatioVolume = pcRatioVolume
-          optionsByExp[expDateStr][strike].pcRatioOI = pcRatioOI
+          // Add P/C ratios to both call and put if they exist
+          if (optionsByExp[expDateStr][strike].call) {
+            optionsByExp[expDateStr][strike].call.pcRatioVolume = pcRatioVolume
+            optionsByExp[expDateStr][strike].call.pcRatioOI = pcRatioOI
+          }
+          if (optionsByExp[expDateStr][strike].put) {
+            optionsByExp[expDateStr][strike].put.pcRatioVolume = pcRatioVolume
+            optionsByExp[expDateStr][strike].put.pcRatioOI = pcRatioOI
+          }
         }
       })
 
@@ -237,13 +249,18 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
       }
 
       // Build options grid aligned with strikes and expirations
+      // Filter by selected option type (call or put)
       const optionsGrid = strikes.map(strike => {
         return expirations.map(expDate => {
           const expKey = expDate.toISOString().split('T')[0]
-          const option = optionsByExp[expKey]?.[strike]
+          const optionData = optionsByExp[expKey]?.[strike]
 
-          if (option) {
-            return option
+          // Extract the selected option type (call or put)
+          if (optionData) {
+            const option = optionData[optionType]
+            if (option) {
+              return option
+            }
           }
 
           // Return null if no data
@@ -288,7 +305,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
       maxPrice: extendedMax,
       noOptionsData: true
     }
-  }, [data, optionsData])
+  }, [data, optionsData, optionType])
 
   if (!chartData) {
     return (
@@ -427,12 +444,20 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           </div>
         </div>
 
-        {/* Heatmap Mode Toggle */}
-        <div className="flex items-center gap-4">
-          <span className="text-[10px] uppercase tracking-[0.2em] font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>
-            Heatmap
-          </span>
-          <HeatmapToggle mode={heatmapMode} onModeChange={setHeatmapMode} />
+        {/* Toggles */}
+        <div className="flex items-center gap-8">
+          <div className="flex items-center gap-4">
+            <span className="text-[10px] uppercase tracking-[0.2em] font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>
+              Option Type
+            </span>
+            <CallPutToggle optionType={optionType} onTypeChange={setOptionType} />
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-[10px] uppercase tracking-[0.2em] font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>
+              Heatmap
+            </span>
+            <HeatmapToggle mode={heatmapMode} onModeChange={setHeatmapMode} />
+          </div>
         </div>
       </div>
 
