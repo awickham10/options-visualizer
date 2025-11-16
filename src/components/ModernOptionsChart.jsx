@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useRef } from 'react'
 import { HeatmapToggle } from './HeatmapToggle'
 import { CallPutToggle } from './CallPutToggle'
 
@@ -9,6 +9,9 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const [optionType, setOptionType] = useState('call')
   const [isEditingCostBasis, setIsEditingCostBasis] = useState(false)
   const [tempCostBasis, setTempCostBasis] = useState('')
+  const [hoveredPoint, setHoveredPoint] = useState(null)
+  const [hoveredCell, setHoveredCell] = useState(null)
+  const svgRef = useRef(null)
 
   const handleExpirationClick = (expDate) => {
     setSelectedExpirations(prev => {
@@ -349,45 +352,74 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const historicalWidth = historicalWidthBase
   const optionsWidth = calculatedOptionsWidth
 
-  // Price scale for historical chart - uses the same dynamic height as options grid
-  const historicalPriceScale = (price) => {
-    // CHART_HEIGHT is strikes.length * FIXED_CELL_HEIGHT
-    // Map price to row position: highest price (maxPrice) -> row 0, lowest price (minPrice) -> last row
-    // Need to align with row centers for visual accuracy
-    const ratio = (maxPrice - price) / (maxPrice - minPrice)  // 0 at top (maxPrice), 1 at bottom (minPrice)
-    const rowIndex = ratio * (strikes.length - 1)  // Map to row index (0 to N-1)
-    return marginTop + (rowIndex * FIXED_CELL_HEIGHT) + (FIXED_CELL_HEIGHT / 2)  // Center of row
-  }
-
-  // Convert price to row-based Y position by finding closest strike
+  // Convert price to row-based Y position with interpolation for accurate alignment
+  // This is THE SINGLE SOURCE OF TRUTH for all price-to-Y conversions
   const priceToRowY = (price) => {
-    // Find the strike closest to this price
-    let closestIdx = 0
-    let minDiff = Math.abs(strikes[0] - price)
+    if (strikes.length === 0) return marginTop
 
-    for (let i = 1; i < strikes.length; i++) {
-      const diff = Math.abs(strikes[i] - price)
-      if (diff < minDiff) {
-        minDiff = diff
-        closestIdx = i
+    // Strikes are sorted descending (highest to lowest)
+    // Find the two strikes that bound this price
+    let upperIdx = -1
+    let lowerIdx = -1
+
+    for (let i = 0; i < strikes.length; i++) {
+      if (strikes[i] >= price) {
+        upperIdx = i
+      } else {
+        lowerIdx = i
+        break
       }
     }
 
-    // Return the Y position for this row
-    return marginTop + (closestIdx * FIXED_CELL_HEIGHT) + (FIXED_CELL_HEIGHT / 2)
+    // Handle edge cases
+    if (upperIdx === -1) {
+      // Price is above all strikes
+      return marginTop + (FIXED_CELL_HEIGHT / 2)
+    }
+    if (lowerIdx === -1) {
+      // Price is below all strikes
+      return marginTop + ((strikes.length - 1) * FIXED_CELL_HEIGHT) + (FIXED_CELL_HEIGHT / 2)
+    }
+
+    // Interpolate between the two strikes
+    const upperStrike = strikes[upperIdx]
+    const lowerStrike = strikes[lowerIdx]
+    const ratio = (upperStrike - price) / (upperStrike - lowerStrike)
+
+    const upperY = marginTop + (upperIdx * FIXED_CELL_HEIGHT) + (FIXED_CELL_HEIGHT / 2)
+    const lowerY = marginTop + (lowerIdx * FIXED_CELL_HEIGHT) + (FIXED_CELL_HEIGHT / 2)
+
+    return upperY + ratio * (lowerY - upperY)
   }
 
   // Sample historical data for rendering
   const sampledHistorical = historical.filter((_, idx) => idx % 2 === 0)
 
-  const linePath = sampledHistorical.map((point, idx) => {
+  // Create full path data for the line chart
+  const linePathData = sampledHistorical.map((point, idx) => {
     const x = marginLeft + (historical.indexOf(point) / (historical.length - 1)) * historicalWidth
-    const y = historicalPriceScale(point.price)
-    return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`
+    const y = priceToRowY(point.price)
+    return { x, y, ...point }
+  })
+
+  const linePath = linePathData.map((point, idx) => {
+    return `${idx === 0 ? 'M' : 'L'} ${point.x} ${point.y}`
   }).join(' ')
+
+  // Create area path for gradient fill
+  const areaPath = linePathData.length > 0
+    ? linePath +
+      ` L ${linePathData[linePathData.length - 1].x} ${height - marginBottom}` +
+      ` L ${linePathData[0].x} ${height - marginBottom} Z`
+    : ''
 
   const cellWidth = optionsWidth / expirations.length
   const cellHeight = FIXED_CELL_HEIGHT // Fixed height for all cells
+
+  // Volume bar chart data
+  const volumeHeight = 60 // Height of volume chart area
+  const maxVolume = Math.max(...historical.map(h => h.volume || 0), 1)
+  const volumeY = height - marginBottom + 10 // Position below the main chart
 
   // Helper function to calculate percentile
   const percentile = (arr, p) => {
@@ -579,11 +611,15 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
 
       {/* Chart */}
       <div className="w-full overflow-x-auto">
-        <svg width={width} height={height}>
+        <svg ref={svgRef} width={width} height={height}>
         <defs>
           <filter id="shadow">
             <feDropShadow dx="0" dy="2" stdDeviation="4" floodOpacity="0.1"/>
           </filter>
+          <linearGradient id="priceGradient" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="#0A0A0A" stopOpacity="0.1"/>
+            <stop offset="100%" stopColor="#0A0A0A" stopOpacity="0"/>
+          </linearGradient>
         </defs>
 
         {/* Grid lines */}
@@ -630,15 +666,88 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           })
         })()}
 
+        {/* Price area (gradient fill) */}
+        <path
+          d={areaPath}
+          fill="url(#priceGradient)"
+          opacity={0.3}
+        />
+
         {/* Price line */}
         <path
           d={linePath}
           fill="none"
           stroke="#0A0A0A"
-          strokeWidth={1.5}
+          strokeWidth={2}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
+
+        {/* Crosshair on hover */}
+        {hoveredPoint && (
+          <>
+            <line
+              x1={hoveredPoint.x}
+              y1={marginTop}
+              x2={hoveredPoint.x}
+              y2={height - marginBottom}
+              stroke="#0A0A0A"
+              strokeWidth={1}
+              strokeDasharray="2,2"
+              opacity={0.3}
+            />
+            <line
+              x1={marginLeft}
+              y1={hoveredPoint.y}
+              x2={marginLeft + historicalWidth}
+              y2={hoveredPoint.y}
+              stroke="#0A0A0A"
+              strokeWidth={1}
+              strokeDasharray="2,2"
+              opacity={0.3}
+            />
+          </>
+        )}
+
+        {/* Interactive price points */}
+        {linePathData.map((point, idx) => (
+          <g key={`price-point-${idx}`}>
+            {/* Invisible larger hit area */}
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r={12}
+              fill="transparent"
+              style={{ cursor: 'pointer' }}
+              onMouseEnter={() => setHoveredPoint(point)}
+              onMouseLeave={() => setHoveredPoint(null)}
+            />
+            {/* Visible dot on hover */}
+            {(hoveredPoint === point || idx === linePathData.length - 1) && (
+              <>
+                <circle
+                  cx={point.x}
+                  cy={point.y}
+                  r={4}
+                  fill="white"
+                  stroke="#0A0A0A"
+                  strokeWidth={2}
+                />
+                {hoveredPoint === point && (
+                  <circle
+                    cx={point.x}
+                    cy={point.y}
+                    r={6}
+                    fill="none"
+                    stroke="#0A0A0A"
+                    strokeWidth={1}
+                    opacity={0.3}
+                  />
+                )}
+              </>
+            )}
+          </g>
+        ))}
 
         {/* Current price line */}
         <line
@@ -804,10 +913,14 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             const cellColor = isHighlighted ? "#0047FF" : getHeatmapColor(intensity)
             const cellOpacity = isHighlighted ? 0.2 : 1
 
+            const isHovered = hoveredCell === cell
+
             return (
               <g
                 key={`cell-${rowIdx}-${colIdx}`}
                 onClick={() => handleCellClick(cell)}
+                onMouseEnter={() => setHoveredCell(cell)}
+                onMouseLeave={() => setHoveredCell(null)}
                 style={{ cursor: 'pointer' }}
               >
                 <rect
@@ -816,18 +929,32 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                   width={cellWidth - 4}
                   height={cellHeight - 4}
                   fill={cellColor}
-                  opacity={cellOpacity}
+                  opacity={isHovered ? 0.7 : cellOpacity}
                   rx={0}
+                  style={{ transition: 'opacity 0.15s ease' }}
                 />
+                {isHovered && (
+                  <rect
+                    x={x + 2}
+                    y={y + 2}
+                    width={cellWidth - 4}
+                    height={cellHeight - 4}
+                    fill="none"
+                    stroke="#0A0A0A"
+                    strokeWidth={2}
+                    rx={0}
+                  />
+                )}
                 <text
                   x={x + cellWidth / 2}
                   y={y + cellHeight / 2 + 4}
                   textAnchor="middle"
                   fontSize="11"
-                  fontWeight={isHighlighted ? "600" : "500"}
+                  fontWeight={isHighlighted || isHovered ? "600" : "500"}
                   fill={intensity > 0.5 ? "#FFFFFF" : (isHighlighted ? "#0047FF" : "#0A0A0A")}
                   fontFamily="DM Sans, sans-serif"
                   letterSpacing="0.01em"
+                  style={{ pointerEvents: 'none' }}
                 >
                   {heatmapMode === 'pc'
                     ? (cell.pcRatioVolume ? cell.pcRatioVolume.toFixed(2) : '0.00')
@@ -908,6 +1035,49 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         >
           EXPIRATIONS
         </text>
+
+        {/* Tooltip rendered as SVG - placed last for z-index priority */}
+        {hoveredPoint && (
+          <g style={{ pointerEvents: 'none' }}>
+            {/* Tooltip background */}
+            <rect
+              x={hoveredPoint.x - 60}
+              y={hoveredPoint.y - 60}
+              width={120}
+              height={50}
+              fill="white"
+              stroke="#E8E8E8"
+              strokeWidth={1}
+              filter="url(#shadow)"
+              rx={2}
+            />
+            {/* Tooltip date */}
+            <text
+              x={hoveredPoint.x}
+              y={hoveredPoint.y - 40}
+              textAnchor="middle"
+              fontSize="9"
+              fontWeight="600"
+              fill="#A3A3A3"
+              fontFamily="DM Sans, sans-serif"
+              letterSpacing="0.15em"
+            >
+              {hoveredPoint.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()}
+            </text>
+            {/* Tooltip price */}
+            <text
+              x={hoveredPoint.x}
+              y={hoveredPoint.y - 20}
+              textAnchor="middle"
+              fontSize="16"
+              fontWeight="500"
+              fill="#0A0A0A"
+              fontFamily="Manrope, sans-serif"
+            >
+              ${hoveredPoint.price.toFixed(2)}
+            </text>
+          </g>
+        )}
 
         </svg>
       </div>
