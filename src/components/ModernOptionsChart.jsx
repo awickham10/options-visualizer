@@ -610,7 +610,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
       </div>
 
       {/* Chart */}
-      <div className="w-full overflow-x-auto">
+      <div className="w-full overflow-x-auto overflow-y-visible" style={{ paddingBottom: '16px' }}>
         <svg ref={svgRef} width={width} height={height}>
         <defs>
           <filter id="shadow">

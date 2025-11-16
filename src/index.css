@@ -66,16 +66,18 @@ body {
 
 /* Custom scrollbar for minimalist aesthetic */
 ::-webkit-scrollbar {
-  width: 1px;
-  height: 1px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--color-bg);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
