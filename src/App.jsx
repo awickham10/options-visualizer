@@ -15,7 +15,11 @@ function App() {
   const [selectedCell, setSelectedCell] = useState(null)
   const [costBasis, setCostBasis] = useState(null) // User's purchase price
   const [isEditingCostBasis, setIsEditingCostBasis] = useState(false)
+  const [loadingCellDetails, setLoadingCellDetails] = useState(false)
   const wsRef = useRef(null)
+
+  // Cache for full option contract details
+  const optionDetailsCache = useRef({})
 
   // Check streaming status on mount
   useEffect(() => {
@@ -147,7 +151,7 @@ function App() {
     fetchStockData()
   }
 
-  const handleCellSelect = (cell) => {
+  const handleCellSelect = async (cell) => {
     if (!cell) {
       setSelectedCell(null)
       return
@@ -159,7 +163,61 @@ function App() {
       return
     }
 
+    // Check cache first
+    if (optionDetailsCache.current[cell.contractSymbol]) {
+      // Merge cached details with basic cell data
+      setSelectedCell({
+        ...cell,
+        ...optionDetailsCache.current[cell.contractSymbol]
+      })
+      return
+    }
+
+    // Set loading state and show basic cell data immediately
+    setLoadingCellDetails(true)
     setSelectedCell(cell)
+
+    try {
+      // Fetch full contract details
+      const response = await fetch(`/api/option/${cell.contractSymbol}`)
+      const result = await response.json()
+
+      if (result.success && result.data) {
+        const fullData = result.data
+
+        // Extract all the detailed fields
+        const detailedCell = {
+          ...cell,
+          // Update quote data if available
+          bid: fullData.latestQuote?.bp || cell.bid,
+          ask: fullData.latestQuote?.ap || cell.ask,
+          bidSize: fullData.latestQuote?.bs || cell.bidSize,
+          askSize: fullData.latestQuote?.as || cell.askSize,
+          lastPrice: fullData.latestTrade?.p || cell.lastPrice,
+          volume: fullData.latestTrade?.s || cell.volume,
+          // Add greeks
+          delta: fullData.greeks?.delta || 0,
+          gamma: fullData.greeks?.gamma || 0,
+          theta: fullData.greeks?.theta || 0,
+          vega: fullData.greeks?.vega || 0,
+          impliedVolatility: fullData.greeks?.implied_volatility || cell.impliedVolatility,
+          openInterest: fullData.openInterest || cell.openInterest
+        }
+
+        // Cache the detailed data
+        optionDetailsCache.current[cell.contractSymbol] = detailedCell
+
+        setSelectedCell(detailedCell)
+      } else {
+        // If fetch fails, just use the basic cell data
+        console.warn('Failed to load option details:', result.error)
+      }
+    } catch (err) {
+      console.error('Error fetching option details:', err)
+      // Keep showing basic data even if fetch fails
+    } finally {
+      setLoadingCellDetails(false)
+    }
   }
 
   // Calculate covered call metrics
@@ -364,6 +422,17 @@ function App() {
           const metrics = calculateCoveredCallMetrics(selectedCell, costBasis)
           return (
             <div className="h-full relative">
+              {/* Loading overlay */}
+              {loadingCellDetails && (
+                <div className="absolute inset-0 bg-white bg-opacity-80 flex items-center justify-center z-10">
+                  <div className="flex items-center gap-3">
+                    <Activity className="w-5 h-5 animate-spin" strokeWidth={1.5} style={{ color: 'var(--color-accent)' }} />
+                    <span className="text-sm uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                      Loading Details...
+                    </span>
+                  </div>
+                </div>
+              )}
               {/* Close button - top right */}
               <button
                 onClick={() => setSelectedCell(null)}

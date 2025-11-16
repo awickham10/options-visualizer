@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from 'react'
+import React, { useMemo, useState, useRef, useCallback } from 'react'
 import { HeatmapToggle } from './HeatmapToggle'
 import { CallPutToggle } from './CallPutToggle'
 
@@ -11,7 +11,9 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const [tempCostBasis, setTempCostBasis] = useState('')
   const [hoveredPoint, setHoveredPoint] = useState(null)
   const [hoveredCell, setHoveredCell] = useState(null)
+  const [scrollTop, setScrollTop] = useState(0)
   const svgRef = useRef(null)
+  const containerRef = useRef(null)
 
   const handleExpirationClick = (expDate) => {
     setSelectedExpirations(prev => {
@@ -43,6 +45,22 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
       onCellSelect(cell)
     }
   }
+
+  // Throttle hover to reduce repaints - only update every 50ms
+  const hoverTimeoutRef = useRef(null)
+  const handleCellHover = useCallback((cell) => {
+    if (hoverTimeoutRef.current) return
+
+    setHoveredCell(cell)
+    hoverTimeoutRef.current = setTimeout(() => {
+      hoverTimeoutRef.current = null
+    }, 50)
+  }, [])
+
+  const handleCellLeave = useCallback(() => {
+    setHoveredCell(null)
+  }, [])
+
   const chartData = useMemo(() => {
     if (!data || data.length === 0) return null
 
@@ -155,21 +173,21 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           expDate: new Date(expDate),
           contractSymbol,
           optionType,
-          price: latestQuote.ap || latestQuote.bp || 0,
-          bid: latestQuote.bp || 0,
-          ask: latestQuote.ap || 0,
-          bidSize: latestQuote.bs || 0,
-          askSize: latestQuote.as || 0,
+          price: latestQuote?.ap || latestQuote?.bp || 0,
+          bid: latestQuote?.bp || 0,
+          ask: latestQuote?.ap || 0,
+          bidSize: latestQuote?.bs || 0,
+          askSize: latestQuote?.as || 0,
           lastPrice: latestTrade?.p || 0,
           volume: latestTrade?.s || 0,
-          impliedVolatility: optData.greeks?.implied_volatility || 0,
+          impliedVolatility: optData.impliedVolatility || 0,
           openInterest: optData.openInterest || 0,
           isITM: optionType === 'C' ? strike < currentPrice : strike > currentPrice,
-          // Add all greeks for covered call analysis
-          delta: optData.greeks?.delta || 0,
-          gamma: optData.greeks?.gamma || 0,
-          theta: optData.greeks?.theta || 0,
-          vega: optData.greeks?.vega || 0,
+          // Greeks will be lazy-loaded when cell is clicked
+          delta: 0,
+          gamma: 0,
+          theta: 0,
+          vega: 0,
           currentPrice // Add current price for calculations
         }
       })
@@ -453,56 +471,88 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
     return sorted[lower] * (1 - weight) + sorted[upper] * weight
   }
 
-  // Calculate intensity based on heatmap mode with outlier handling
+  // Pre-calculate intensity ranges once per heatmap mode change
+  const intensityRanges = useMemo(() => {
+    const validCells = optionsGrid.flat().filter(c => c)
+
+    const ranges = {}
+    const modes = ['volume', 'iv', 'oi', 'pc']
+
+    modes.forEach(mode => {
+      let values = []
+      switch (mode) {
+        case 'volume':
+          values = validCells.map(c => c.volume || 0)
+          break
+        case 'iv':
+          values = validCells.map(c => c.impliedVolatility || 0)
+          break
+        case 'oi':
+          values = validCells.map(c => c.openInterest || 0)
+          break
+        case 'pc':
+          values = validCells.map(c => c.pcRatioVolume || 0)
+          break
+      }
+
+      ranges[mode] = {
+        min: percentile(values, 5),
+        max: percentile(values, 95) || (mode === 'iv' || mode === 'pc' ? 0.01 : 1)
+      }
+    })
+
+    return ranges
+  }, [optionsGrid, heatmapMode])
+
+  // Optimized intensity calculation using pre-calculated ranges
   const calculateIntensity = (cell) => {
     if (!cell) return 0
 
     let value = 0
-    let minValue = 0
-    let maxValue = 1
-
-    const validCells = optionsGrid.flat().filter(c => c)
+    const range = intensityRanges[heatmapMode] || { min: 0, max: 1 }
 
     switch (heatmapMode) {
       case 'volume':
         value = cell.volume || 0
-        const volumes = validCells.map(c => c.volume || 0)
-        minValue = percentile(volumes, 5)  // 5th percentile
-        maxValue = percentile(volumes, 95) || 1  // 95th percentile
         break
       case 'iv':
         value = cell.impliedVolatility || 0
-        const ivs = validCells.map(c => c.impliedVolatility || 0)
-        minValue = percentile(ivs, 5)
-        maxValue = percentile(ivs, 95) || 0.01
         break
       case 'oi':
         value = cell.openInterest || 0
-        const ois = validCells.map(c => c.openInterest || 0)
-        minValue = percentile(ois, 5)
-        maxValue = percentile(ois, 95) || 1
         break
       case 'pc':
         value = cell.pcRatioVolume || 0
-        const pcRatios = validCells.map(c => c.pcRatioVolume || 0)
-        minValue = percentile(pcRatios, 5)
-        maxValue = percentile(pcRatios, 95) || 0.01
         break
       default:
         value = cell.volume || 0
-        const defaultVolumes = validCells.map(c => c.volume || 0)
-        minValue = percentile(defaultVolumes, 5)
-        maxValue = percentile(defaultVolumes, 95) || 1
     }
 
     // Normalize to 0-1 range based on percentiles (clamp outliers)
-    if (maxValue === minValue) return 0
-    const intensity = (value - minValue) / (maxValue - minValue)
+    if (range.max === range.min) return 0
+    const intensity = (value - range.min) / (range.max - range.min)
     return Math.max(0, Math.min(intensity, 1))  // Clamp to [0, 1]
   }
 
+  // Move color calculation outside render loop
+  const getHeatmapColor = (intensity) => {
+    if (intensity === 0) return '#FAFAFA'
+    const r = Math.round(255 - (255 * intensity))
+    const g = Math.round(255 - (184 * intensity))
+    const b = 255
+    return `rgb(${r}, ${g}, ${b})`
+  }
+
+  // Virtualization: Only render visible rows + buffer
+  const OVERSCAN_ROWS = 5 // Render extra rows above/below viewport
+  const containerHeight = height - marginTop - marginBottom
+  const visibleRowCount = Math.ceil(containerHeight / cellHeight)
+  const firstVisibleRow = Math.max(0, Math.floor(scrollTop / cellHeight) - OVERSCAN_ROWS)
+  const lastVisibleRow = Math.min(strikes.length, firstVisibleRow + visibleRowCount + OVERSCAN_ROWS * 2)
+  const visibleRows = optionsGrid.slice(firstVisibleRow, lastVisibleRow)
+
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <div className="bg-white p-12" style={{ border: '1px solid var(--color-border)' }}>
       {/* Header */}
       <div className="mb-12 pb-8" style={{ borderBottom: '1px solid var(--color-border)' }}>
@@ -900,7 +950,8 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             NO OPTIONS DATA
           </text>
         ) : (
-          optionsGrid.map((row, rowIdx) => {
+          visibleRows.map((row, visibleIdx) => {
+          const rowIdx = firstVisibleRow + visibleIdx
           const strike = strikes[rowIdx]
           const y = marginTop + (rowIdx * cellHeight)  // Row-based positioning
           const isStrikeSelected = selectedStrikes.has(strike)
@@ -916,30 +967,17 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             const isExpSelected = selectedExpirations.has(expDate.toISOString())
             const isHighlighted = isStrikeSelected || isExpSelected
 
-            // Calculate white-to-blue gradient color
-            // Low intensity = white (#FFFFFF), High intensity = accent blue (#0047FF)
-            const getHeatmapColor = (intensity) => {
-              if (intensity === 0) return '#FAFAFA'
-
-              // Interpolate between white (255,255,255) and accent blue (0,71,255)
-              const r = Math.round(255 - (255 * intensity))
-              const g = Math.round(255 - (184 * intensity))
-              const b = 255
-
-              return `rgb(${r}, ${g}, ${b})`
-            }
-
             const cellColor = isHighlighted ? "#0047FF" : getHeatmapColor(intensity)
             const cellOpacity = isHighlighted ? 0.2 : 1
 
-            const isHovered = hoveredCell === cell
+            const isHovered = hoveredCell?.contractSymbol === cell.contractSymbol
 
             return (
               <g
-                key={`cell-${rowIdx}-${colIdx}`}
+                key={cell.contractSymbol}
                 onClick={() => handleCellClick(cell)}
-                onMouseEnter={() => setHoveredCell(cell)}
-                onMouseLeave={() => setHoveredCell(null)}
+                onMouseEnter={() => handleCellHover(cell)}
+                onMouseLeave={handleCellLeave}
                 style={{ cursor: 'pointer' }}
               >
                 <rect
@@ -950,7 +988,6 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                   fill={cellColor}
                   opacity={isHovered ? 0.7 : cellOpacity}
                   rx={0}
-                  style={{ transition: 'opacity 0.15s ease' }}
                 />
                 {isHovered && (
                   <rect
