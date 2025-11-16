@@ -1,4 +1,5 @@
-import React, { useMemo, useState, useRef, useCallback } from 'react'
+import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { HeatmapToggle } from './HeatmapToggle'
 import { CallPutToggle } from './CallPutToggle'
 
@@ -12,8 +13,10 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const [hoveredPoint, setHoveredPoint] = useState(null)
   const [hoveredCell, setHoveredCell] = useState(null)
   const [scrollTop, setScrollTop] = useState(0)
+  const [showStickyHeader, setShowStickyHeader] = useState(false)
   const svgRef = useRef(null)
   const containerRef = useRef(null)
+  const headerRef = useRef(null)
 
   const handleExpirationClick = (expDate) => {
     setSelectedExpirations(prev => {
@@ -60,6 +63,34 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const handleCellLeave = useCallback(() => {
     setHoveredCell(null)
   }, [])
+
+  // Track scroll position to show/hide sticky header using IntersectionObserver
+  useEffect(() => {
+    // Wait for both data and header ref to be available
+    if (!data || data.length === 0 || !headerRef.current) {
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // When the top of the sentinel goes above the viewport, show sticky header
+        const shouldShow = entry.boundingClientRect.top < 0
+        setShowStickyHeader(shouldShow)
+      },
+      {
+        root: null, // Use viewport as root
+        threshold: [0, 0.1, 0.5, 1],
+        rootMargin: '0px'
+      }
+    )
+
+    const headerElement = headerRef.current
+    observer.observe(headerElement)
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [data?.length])  // Run when data length changes (more stable than data array)
 
   const chartData = useMemo(() => {
     if (!data || data.length === 0) return null
@@ -552,8 +583,159 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const visibleRows = optionsGrid.slice(firstVisibleRow, lastVisibleRow)
 
   return (
-    <div className="relative" ref={containerRef}>
-      <div className="bg-white p-12" style={{ border: '1px solid var(--color-border)' }}>
+    <>
+      {/* Sticky Header - rendered via portal to document.body */}
+      {chartData && createPortal(
+        <div
+          className="left-0 right-0 bg-white transition-all duration-300 ease-out"
+          style={{
+            position: 'fixed',
+            top: showStickyHeader ? '0' : '-200px',
+            left: 0,
+            right: 0,
+            borderBottom: '1px solid var(--color-border)',
+            opacity: showStickyHeader ? 1 : 0,
+            boxShadow: showStickyHeader ? '0 4px 12px rgba(0, 0, 0, 0.08)' : 'none',
+            zIndex: 1000,
+            pointerEvents: showStickyHeader ? 'auto' : 'none'
+          }}
+        >
+          <div className="max-w-[1800px] mx-auto px-8 py-4">
+            <div className="flex items-center justify-between gap-8">
+              {/* Left: Symbol + Price + Cost Basis */}
+              <div className="flex items-center gap-6">
+                <h3 className="text-3xl font-light tracking-[-0.02em]" style={{
+                  color: 'var(--color-text-primary)',
+                  fontFamily: 'Manrope, sans-serif',
+                  fontWeight: 300
+                }}>
+                  {symbol}
+                </h3>
+
+                <div className="h-8 w-px" style={{ background: 'var(--color-border)' }} />
+
+                <div className="flex items-baseline gap-3">
+                  <div className="text-[9px] uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+                    Current
+                  </div>
+                  <div className="text-2xl font-light tracking-[-0.02em]" style={{
+                    color: 'var(--color-text-primary)',
+                    fontFamily: 'Manrope, sans-serif',
+                    fontWeight: 300
+                  }}>
+                    ${currentPrice.toFixed(2)}
+                </div>
+              </div>
+
+              <div className="h-8 w-px" style={{ background: 'var(--color-border)' }} />
+
+              {/* Cost Basis - Compact */}
+              <div className="flex items-baseline gap-3">
+                <span className="text-[9px] uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Cost Basis
+                </span>
+                {!isEditingCostBasis ? (
+                  <button
+                    onClick={() => {
+                      setIsEditingCostBasis(true)
+                      setTempCostBasis(costBasis?.toFixed(2) || currentPrice.toFixed(2))
+                    }}
+                    className="group relative"
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="text-lg font-medium tracking-tight transition-all group-hover:opacity-60" style={{
+                      color: 'var(--color-text-primary)',
+                      fontFamily: 'DM Mono, monospace'
+                    }}>
+                      ${(costBasis || currentPrice).toFixed(2)}
+                    </div>
+                    <div className="absolute -bottom-1 left-0 right-0 h-px opacity-0 group-hover:opacity-100 transition-opacity" style={{
+                      background: 'var(--color-border)'
+                    }} />
+                  </button>
+                ) : (
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={tempCostBasis}
+                    onChange={(e) => setTempCostBasis(e.target.value)}
+                    onBlur={() => {
+                      const newBasis = parseFloat(tempCostBasis)
+                      if (!isNaN(newBasis) && newBasis > 0) {
+                        onCostBasisChange(newBasis)
+                      }
+                      setIsEditingCostBasis(false)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const newBasis = parseFloat(tempCostBasis)
+                        if (!isNaN(newBasis) && newBasis > 0) {
+                          onCostBasisChange(newBasis)
+                        }
+                        setIsEditingCostBasis(false)
+                      } else if (e.key === 'Escape') {
+                        setIsEditingCostBasis(false)
+                      }
+                    }}
+                    autoFocus
+                    className="text-lg font-medium tracking-tight px-2 py-1"
+                    style={{
+                      width: '120px',
+                      color: 'var(--color-text-primary)',
+                      fontFamily: 'DM Mono, monospace',
+                      border: '1px solid var(--color-accent)',
+                      background: 'transparent',
+                      outline: 'none'
+                    }}
+                  />
+                )}
+              </div>
+
+              {/* Position P/L - Compact */}
+              {costBasis && costBasis !== currentPrice && (
+                <>
+                  <div className="h-8 w-px" style={{ background: 'var(--color-border)' }} />
+                  <div className="flex items-baseline gap-2">
+                    <div className="text-[9px] uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+                      P/L
+                    </div>
+                    <div className="text-base font-semibold" style={{
+                      color: currentPrice > costBasis ? '#10b981' : currentPrice < costBasis ? '#ef4444' : 'var(--color-text-secondary)',
+                      fontFamily: 'DM Mono, monospace'
+                    }}>
+                      {currentPrice > costBasis ? '+' : ''}{(((currentPrice - costBasis) / costBasis) * 100).toFixed(2)}%
+                    </div>
+                  </div>
+                </>
+              )}
+              </div>
+
+              {/* Right: Toggles */}
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-3">
+                  <span className="text-[9px] uppercase tracking-[0.2em] font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>
+                    Type
+                  </span>
+                  <CallPutToggle optionType={optionType} onTypeChange={setOptionType} />
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[9px] uppercase tracking-[0.2em] font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>
+                    Heatmap
+                  </span>
+                  <HeatmapToggle mode={heatmapMode} onModeChange={setHeatmapMode} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      <div className="relative" ref={containerRef}>
+        {/* Sentinel element for IntersectionObserver */}
+        <div ref={headerRef} style={{ position: 'absolute', top: 0, left: 0, width: '1px', height: '1px', pointerEvents: 'none' }} />
+
+        <div className="bg-white p-12" style={{ border: '1px solid var(--color-border)' }}>
       {/* Header */}
       <div className="mb-12 pb-8" style={{ borderBottom: '1px solid var(--color-border)' }}>
         <div className="flex items-baseline justify-between mb-8">
@@ -1168,6 +1350,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         </div>
       </div>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
