@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { TrendingUp, Search, Activity } from 'lucide-react'
 import { ModernOptionsChart } from './components/ModernOptionsChart'
+import { PriceChart } from './components/PriceChart'
 
 function App() {
   const [symbol, setSymbol] = useState('')
@@ -12,6 +13,8 @@ function App() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [selectedCell, setSelectedCell] = useState(null)
+  const [costBasis, setCostBasis] = useState(null) // User's purchase price
+  const [isEditingCostBasis, setIsEditingCostBasis] = useState(false)
   const wsRef = useRef(null)
 
   // Check streaming status on mount
@@ -61,6 +64,12 @@ function App() {
         setHistoricalData(barsData.data)
         setCurrentSymbol(symbol.toUpperCase())
         setLastUpdated(barsData.timestamp || new Date().toISOString())
+
+        // Set cost basis to current price by default
+        if (barsData.data && barsData.data.length > 0) {
+          const currentPrice = barsData.data[barsData.data.length - 1].close
+          setCostBasis(currentPrice)
+        }
 
         // Connect to WebSocket for real-time updates
         connectWebSocket(symbol.toUpperCase())
@@ -151,6 +160,67 @@ function App() {
     }
 
     setSelectedCell(cell)
+  }
+
+  // Calculate covered call metrics
+  const calculateCoveredCallMetrics = (cell, userCostBasis = null) => {
+    if (!cell) return null
+
+    const today = new Date()
+    const expDate = new Date(cell.expDate)
+    const daysToExpiration = Math.max(0, Math.ceil((expDate - today) / (1000 * 60 * 60 * 24)))
+
+    // For covered calls, you SELL the call, so use bid price (what you receive)
+    const premium = cell.bid
+    const currentPrice = cell.currentPrice
+    const strike = cell.strike
+    const basis = userCostBasis || currentPrice // Use user's cost basis if provided
+
+    // Avoid division by zero
+    if (currentPrice === 0 || daysToExpiration === 0 || basis === 0) {
+      return { daysToExpiration, premium }
+    }
+
+    // Premium return based on current price (what someone buying today would get)
+    const annualizedReturn = (premium / currentPrice) * (365 / daysToExpiration) * 100
+
+    // Premium return based on YOUR cost basis (your actual income yield)
+    const premiumReturnOnCost = (premium / basis) * (365 / daysToExpiration) * 100
+
+    // Return if called - based on YOUR cost basis
+    // Total gain = appreciation to strike + premium collected
+    const returnIfCalled = ((strike - basis + premium) / basis) * (365 / daysToExpiration) * 100
+
+    // Current unrealized position
+    const currentPosition = ((currentPrice - basis) / basis) * 100
+    const currentPositionAnnualized = currentPosition * (365 / daysToExpiration)
+
+    // Total return if called (not annualized)
+    const totalReturnIfCalled = ((strike - basis + premium) / basis) * 100
+
+    // Downside protection
+    const downsideProtection = premium
+    const downsideProtectionPercent = (premium / currentPrice) * 100
+
+    // Actual breakeven (stock price can drop this much before you lose money)
+    const breakeven = basis - premium
+    const breakevenPercent = ((currentPrice - breakeven) / currentPrice) * 100
+
+    return {
+      daysToExpiration,
+      premium,
+      annualizedReturn, // Premium yield at current price
+      premiumReturnOnCost, // Premium yield on your cost basis
+      returnIfCalled, // Annualized return if called away
+      totalReturnIfCalled, // Total return % if called (not annualized)
+      currentPosition, // Current unrealized gain/loss %
+      currentPositionAnnualized, // Annualized based on time held
+      downsideProtection,
+      downsideProtectionPercent,
+      breakeven, // Your actual breakeven price
+      breakevenPercent, // % cushion from current price
+      usingCostBasis: userCostBasis !== null && userCostBasis !== currentPrice
+    }
   }
 
   // Close on Escape key
@@ -260,6 +330,8 @@ function App() {
               optionsData={optionsData}
               lastUpdated={lastUpdated}
               onCellSelect={handleCellSelect}
+              costBasis={costBasis}
+              onCostBasisChange={setCostBasis}
             />
           </div>
         )}
@@ -284,118 +356,274 @@ function App() {
         style={{
           borderTop: '1px solid var(--color-border)',
           zIndex: 1000,
-          height: selectedCell ? '200px' : '0px',
+          height: selectedCell ? '320px' : '0px',
           overflow: 'hidden'
         }}
       >
-        {selectedCell && (
-          <div className="h-full relative">
-            {/* Close button - top right */}
-            <button
-              onClick={() => setSelectedCell(null)}
-              className="absolute top-4 right-8 text-xl hover:opacity-60 transition-opacity"
-              style={{ color: 'var(--color-text-tertiary)' }}
-            >
-              ✕
-            </button>
+        {selectedCell && (() => {
+          const metrics = calculateCoveredCallMetrics(selectedCell, costBasis)
+          return (
+            <div className="h-full relative">
+              {/* Close button - top right */}
+              <button
+                onClick={() => setSelectedCell(null)}
+                className="absolute top-4 right-8 text-xl hover:opacity-60 transition-opacity"
+                style={{ color: 'var(--color-text-tertiary)' }}
+              >
+                ✕
+              </button>
 
-            <div className="max-w-[1800px] mx-auto px-8 py-6 h-full flex items-center gap-12">
-              {/* Left side - Contract info */}
-              <div className="flex-shrink-0">
-                <div className="text-[10px] uppercase tracking-[0.2em] font-semibold mb-2" style={{ color: 'var(--color-text-tertiary)' }}>
-                  Selected Option
-                </div>
-                <div className="text-sm font-mono tracking-tight" style={{ color: 'var(--color-text-primary)' }}>
-                  {selectedCell.contractSymbol}
-                </div>
-              </div>
-
-              <div style={{ width: '1px', height: '120px', background: 'var(--color-border)' }} />
-
-              {/* Right side - Details in horizontal layout */}
-              <div className="flex-1 grid grid-cols-5 gap-8">
-                {/* Strike */}
-                <div>
-                  <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-                    Strike
+              <div className="max-w-[1800px] mx-auto px-8 py-6 h-full overflow-y-auto">
+                {/* Header - Contract Info */}
+                <div className="mb-6 pb-4" style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <div className="text-[10px] uppercase tracking-[0.2em] font-semibold mb-2" style={{ color: 'var(--color-text-tertiary)' }}>
+                    Selected Option
                   </div>
-                  <div className="text-3xl font-light tracking-[-0.02em]" style={{
-                    color: 'var(--color-text-primary)',
-                    fontFamily: 'Manrope, sans-serif',
-                    fontWeight: 300
-                  }}>
-                    ${selectedCell.strike.toFixed(2)}
+                  <div className="flex items-baseline gap-4">
+                    <div className="text-sm font-mono tracking-tight" style={{ color: 'var(--color-text-primary)' }}>
+                      {selectedCell.contractSymbol}
+                    </div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.1em]" style={{
+                      color: selectedCell.isITM ? 'var(--color-accent)' : 'var(--color-text-primary)'
+                    }}>
+                      {selectedCell.isITM ? 'ITM' : 'OTM'}
+                    </div>
                   </div>
                 </div>
 
-                {/* Expiration & Type */}
-                <div>
-                  <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-                    Expiration
-                  </div>
-                  <div className="text-sm font-medium mb-3" style={{ color: 'var(--color-text-primary)' }}>
-                    {selectedCell.expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.1em]" style={{
-                    color: selectedCell.isITM ? 'var(--color-accent)' : 'var(--color-text-primary)'
-                  }}>
-                    {selectedCell.isITM ? 'ITM' : 'OTM'}
-                  </div>
-                </div>
-
-                {/* Bid */}
-                <div>
-                  <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-                    Bid
-                  </div>
-                  <div className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                    ${selectedCell.bid.toFixed(2)}
-                  </div>
-                  <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
-                    × {selectedCell.bidSize}
-                  </div>
-                </div>
-
-                {/* Ask */}
-                <div>
-                  <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-                    Ask
-                  </div>
-                  <div className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                    ${selectedCell.ask.toFixed(2)}
-                  </div>
-                  <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
-                    × {selectedCell.askSize}
-                  </div>
-                </div>
-
-                {/* Last & Volume */}
-                <div>
-                  {selectedCell.lastPrice > 0 && (
-                    <>
+                {/* Main Metrics Grid */}
+                <div className="space-y-6">
+                  {/* Row 1: Basic Info */}
+                  <div className="grid grid-cols-6 gap-6">
+                    <div>
                       <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
-                        Last
+                        Strike
                       </div>
-                      <div className="text-xl font-medium mb-3" style={{ color: 'var(--color-text-primary)' }}>
-                        ${selectedCell.lastPrice.toFixed(2)}
+                      <div className="text-2xl font-light tracking-[-0.02em]" style={{
+                        color: 'var(--color-text-primary)',
+                        fontFamily: 'Manrope, sans-serif',
+                        fontWeight: 300
+                      }}>
+                        ${selectedCell.strike.toFixed(2)}
                       </div>
-                    </>
-                  )}
-                  {selectedCell.volume > 0 && (
-                    <>
-                      <div className="text-[10px] uppercase tracking-[0.15em] mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                        Expiration
+                      </div>
+                      <div className="text-sm font-medium mb-1" style={{ color: 'var(--color-text-primary)' }}>
+                        {selectedCell.expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </div>
+                      <div className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                        {metrics?.daysToExpiration} DTE
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                        Premium (Bid)
+                      </div>
+                      <div className="text-2xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                        ${selectedCell.bid.toFixed(2)}
+                      </div>
+                      <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                        × {selectedCell.bidSize}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                        Ask
+                      </div>
+                      <div className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                        ${selectedCell.ask.toFixed(2)}
+                      </div>
+                      <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                        × {selectedCell.askSize}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                        Delta
+                      </div>
+                      <div className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                        {selectedCell.delta ? selectedCell.delta.toFixed(3) : 'N/A'}
+                      </div>
+                      <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                        {selectedCell.delta ? `~${(Math.abs(selectedCell.delta) * 100).toFixed(0)}% prob` : ''}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                        Theta
+                      </div>
+                      <div className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                        {selectedCell.theta ? selectedCell.theta.toFixed(3) : 'N/A'}
+                      </div>
+                      <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                        per day
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div style={{ height: '1px', background: 'var(--color-border)' }} />
+
+                  {/* Row 2: Covered Call Returns */}
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.2em] font-semibold mb-4 flex items-center gap-3" style={{ color: 'var(--color-text-tertiary)' }}>
+                      Covered Call Analysis
+                      {metrics?.usingCostBasis && (
+                        <span className="text-[8px] px-2 py-1 rounded" style={{
+                          background: 'var(--color-accent)',
+                          color: 'white',
+                          opacity: 0.8
+                        }}>
+                          USING COST BASIS
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-5 gap-6">
+                      {/* Current Position (only show if using custom cost basis) */}
+                      {metrics?.usingCostBasis && (
+                        <div>
+                          <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                            Current Position
+                          </div>
+                          <div className="text-2xl font-medium" style={{
+                            color: metrics?.currentPosition > 0 ? '#10b981' : metrics?.currentPosition < 0 ? '#ef4444' : 'var(--color-text-primary)'
+                          }}>
+                            {metrics?.currentPosition !== undefined ? `${metrics.currentPosition > 0 ? '+' : ''}${metrics.currentPosition.toFixed(2)}%` : 'N/A'}
+                          </div>
+                          <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                            Unrealized
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                          {metrics?.usingCostBasis ? 'Premium Yield' : 'Premium Return'}
+                        </div>
+                        <div className="text-2xl font-medium" style={{
+                          color: metrics?.premiumReturnOnCost > 0 ? '#10b981' : 'var(--color-text-primary)'
+                        }}>
+                          {metrics?.premiumReturnOnCost ? `${metrics.premiumReturnOnCost.toFixed(2)}%` : 'N/A'}
+                        </div>
+                        <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                          Annualized
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                          Return If Called
+                        </div>
+                        <div className="text-2xl font-medium" style={{
+                          color: metrics?.returnIfCalled > 0 ? '#10b981' : '#ef4444'
+                        }}>
+                          {metrics?.returnIfCalled ? `${metrics.returnIfCalled.toFixed(2)}%` : 'N/A'}
+                        </div>
+                        <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                          Annualized
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                          Total Return
+                        </div>
+                        <div className="text-2xl font-medium" style={{
+                          color: metrics?.totalReturnIfCalled > 0 ? '#10b981' : '#ef4444'
+                        }}>
+                          {metrics?.totalReturnIfCalled !== undefined ? `${metrics.totalReturnIfCalled > 0 ? '+' : ''}${metrics.totalReturnIfCalled.toFixed(2)}%` : 'N/A'}
+                        </div>
+                        <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                          If called
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                          Breakeven
+                        </div>
+                        <div className="text-2xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                          ${metrics?.breakeven ? metrics.breakeven.toFixed(2) : 'N/A'}
+                        </div>
+                        <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
+                          {metrics?.breakevenPercent ? `${metrics.breakevenPercent.toFixed(1)}% cushion` : 'Cost - premium'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div style={{ height: '1px', background: 'var(--color-border)' }} />
+
+                  {/* Row 3: Greeks & Additional Data */}
+                  <div className="grid grid-cols-6 gap-6">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                        Gamma
+                      </div>
+                      <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                        {selectedCell.gamma ? selectedCell.gamma.toFixed(4) : 'N/A'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                        Vega
+                      </div>
+                      <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                        {selectedCell.vega ? selectedCell.vega.toFixed(4) : 'N/A'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                        Implied Vol
+                      </div>
+                      <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                        {selectedCell.impliedVolatility ? `${(selectedCell.impliedVolatility * 100).toFixed(1)}%` : 'N/A'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
                         Volume
                       </div>
                       <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                        {selectedCell.volume.toLocaleString()}
+                        {selectedCell.volume > 0 ? selectedCell.volume.toLocaleString() : 'N/A'}
                       </div>
-                    </>
-                  )}
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                        Open Interest
+                      </div>
+                      <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                        {selectedCell.openInterest > 0 ? selectedCell.openInterest.toLocaleString() : 'N/A'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.15em] mb-2" style={{ color: 'var(--color-text-secondary)' }}>
+                        Last
+                      </div>
+                      <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
+                        {selectedCell.lastPrice > 0 ? `$${selectedCell.lastPrice.toFixed(2)}` : 'N/A'}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
       </div>
     </div>
   )
