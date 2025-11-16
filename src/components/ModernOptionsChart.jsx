@@ -252,7 +252,26 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
 
       // Get sorted unique strikes - use ALL strikes without filtering
       // Sort descending so high prices are at the top
-      const strikes = Array.from(allStrikes).sort((a, b) => b - a)
+      let strikes = Array.from(allStrikes).sort((a, b) => b - a)
+
+      // Filter out strikes where all contracts across all expirations have zero bid/ask
+      // This trims the chart vertically to show only actionable price ranges
+      strikes = strikes.filter(strike => {
+        // Check if ANY expiration for this strike has non-zero bid/ask
+        return Array.from(allExpirations).some(expDate => {
+          const optionData = optionsByExp[expDate]?.[strike]
+          if (!optionData) return false
+
+          // Check both call and put for non-zero bid/ask
+          const callData = optionData.call
+          const putData = optionData.put
+
+          const callHasValue = callData && (callData.bid > 0 || callData.ask > 0)
+          const putHasValue = putData && (putData.bid > 0 || putData.ask > 0)
+
+          return callHasValue || putHasValue
+        })
+      })
 
       // Set price range to exactly match strike range so chart aligns properly
       // strikes are sorted descending, so strikes[0] is highest, strikes[last] is lowest
