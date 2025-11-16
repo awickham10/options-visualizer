@@ -211,6 +211,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         }
 
         const optionKey = optionType === 'C' ? 'call' : 'put'
+        const greeks = optData.greeks || {}
         optionsByExp[expDate][strike][optionKey] = {
           strike,
           expDate: new Date(expDate),
@@ -226,11 +227,11 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           impliedVolatility: optData.impliedVolatility || 0,
           openInterest: optData.openInterest || 0,
           isITM: optionType === 'C' ? strike < currentPrice : strike > currentPrice,
-          // Greeks will be lazy-loaded when cell is clicked
-          delta: 0,
-          gamma: 0,
-          theta: 0,
-          vega: 0,
+          // Greeks from API
+          delta: greeks.delta || 0,
+          gamma: greeks.gamma || 0,
+          theta: greeks.theta || 0,
+          vega: greeks.vega || 0,
           currentPrice // Add current price for calculations
         }
       })
@@ -519,7 +520,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
     const validCells = optionsGrid.flat().filter(c => c)
 
     const ranges = {}
-    const modes = ['volume', 'iv', 'oi', 'pc']
+    const modes = ['volume', 'iv', 'oi', 'pc', 'delta']
 
     modes.forEach(mode => {
       let values = []
@@ -536,11 +537,14 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         case 'pc':
           values = validCells.map(c => c.pcRatioVolume || 0)
           break
+        case 'delta':
+          values = validCells.map(c => Math.abs(c.delta || 0))
+          break
       }
 
       ranges[mode] = {
         min: percentile(values, 5),
-        max: percentile(values, 95) || (mode === 'iv' || mode === 'pc' ? 0.01 : 1)
+        max: percentile(values, 95) || (mode === 'iv' || mode === 'pc' || mode === 'delta' ? 0.01 : 1)
       }
     })
 
@@ -566,6 +570,9 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         break
       case 'pc':
         value = cell.pcRatioVolume || 0
+        break
+      case 'delta':
+        value = Math.abs(cell.delta || 0)
         break
       default:
         value = cell.volume || 0
@@ -1224,6 +1231,8 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                 >
                   {heatmapMode === 'pc'
                     ? (cell.pcRatioVolume ? cell.pcRatioVolume.toFixed(2) : '0.00')
+                    : heatmapMode === 'delta'
+                    ? (cell.delta ? cell.delta.toFixed(3) : '0.000')
                     : `$${typeof cell.price === 'number' ? cell.price.toFixed(2) : cell.price}`
                   }
                 </text>

@@ -142,6 +142,7 @@ async function fetchOptionsData(symbol, expirationDateGte, expirationDateLte, mi
     Object.entries(allSnapshots).forEach(([contractSymbol, optData]) => {
       const latestQuote = optData.latestQuote;
       const latestTrade = optData.latestTrade;
+      const greeks = optData.greeks;
 
       minimalData[contractSymbol] = {
         latestQuote: latestQuote ? {
@@ -155,7 +156,13 @@ async function fetchOptionsData(symbol, expirationDateGte, expirationDateLte, mi
           s: latestTrade.s || 0
         } : null,
         openInterest: optData.openInterest || 0,
-        impliedVolatility: optData.impliedVolatility || 0
+        impliedVolatility: optData.impliedVolatility || 0,
+        greeks: greeks ? {
+          delta: greeks.delta || 0,
+          gamma: greeks.gamma || 0,
+          theta: greeks.theta || 0,
+          vega: greeks.vega || 0
+        } : null
       };
     });
     return minimalData;
