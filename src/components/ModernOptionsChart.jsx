@@ -17,6 +17,18 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const svgRef = useRef(null)
   const containerRef = useRef(null)
   const headerRef = useRef(null)
+  const inputRef = useRef(null)
+
+  // Debug log whenever isEditingCostBasis changes
+  console.log('ModernOptionsChart render, isEditingCostBasis:', isEditingCostBasis)
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (isEditingCostBasis && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [isEditingCostBasis])
 
   const handleExpirationClick = (expDate) => {
     setSelectedExpirations(prev => {
@@ -636,30 +648,37 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                 </span>
                 {!isEditingCostBasis ? (
                   <button
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      console.log('Cost basis button clicked (sticky)')
                       setIsEditingCostBasis(true)
                       setTempCostBasis(costBasis?.toFixed(2) || currentPrice.toFixed(2))
                     }}
-                    className="group relative"
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div className="text-lg font-medium tracking-tight transition-all group-hover:opacity-60" style={{
+                    className="group relative text-lg font-medium tracking-tight transition-all group-hover:opacity-60"
+                    style={{
+                      cursor: 'pointer',
                       color: 'var(--color-text-primary)',
-                      fontFamily: 'DM Mono, monospace'
-                    }}>
-                      ${(costBasis || currentPrice).toFixed(2)}
-                    </div>
+                      fontFamily: 'DM Mono, monospace',
+                      background: 'none',
+                      border: 'none',
+                      padding: 0
+                    }}
+                  >
+                    ${(costBasis || currentPrice).toFixed(2)}
                     <div className="absolute -bottom-1 left-0 right-0 h-px opacity-0 group-hover:opacity-100 transition-opacity" style={{
                       background: 'var(--color-border)'
                     }} />
                   </button>
                 ) : (
                   <input
+                    ref={inputRef}
                     type="number"
                     step="0.01"
                     value={tempCostBasis}
                     onChange={(e) => setTempCostBasis(e.target.value)}
-                    onBlur={() => {
+                    onBlur={(e) => {
+                      e.stopPropagation()
                       const newBasis = parseFloat(tempCostBasis)
                       if (!isNaN(newBasis) && newBasis > 0) {
                         onCostBasisChange(newBasis)
@@ -668,16 +687,17 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
+                        e.stopPropagation()
                         const newBasis = parseFloat(tempCostBasis)
                         if (!isNaN(newBasis) && newBasis > 0) {
                           onCostBasisChange(newBasis)
                         }
                         setIsEditingCostBasis(false)
                       } else if (e.key === 'Escape') {
+                        e.stopPropagation()
                         setIsEditingCostBasis(false)
                       }
                     }}
-                    autoFocus
                     className="text-lg font-medium tracking-tight px-2 py-1"
                     style={{
                       width: '120px',
@@ -765,30 +785,37 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
               </span>
               {!isEditingCostBasis ? (
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    console.log('Cost basis button clicked (main)')
                     setIsEditingCostBasis(true)
                     setTempCostBasis(costBasis?.toFixed(2) || currentPrice.toFixed(2))
                   }}
-                  className="group relative"
-                  style={{ cursor: 'pointer' }}
-                >
-                  <div className="text-lg font-medium tracking-tight transition-all group-hover:opacity-60" style={{
+                  className="group relative text-lg font-medium tracking-tight transition-all group-hover:opacity-60"
+                  style={{
+                    cursor: 'pointer',
                     color: 'var(--color-text-primary)',
-                    fontFamily: 'DM Mono, monospace'
-                  }}>
-                    ${(costBasis || currentPrice).toFixed(2)}
-                  </div>
+                    fontFamily: 'DM Mono, monospace',
+                    background: 'none',
+                    border: 'none',
+                    padding: 0
+                  }}
+                >
+                  ${(costBasis || currentPrice).toFixed(2)}
                   <div className="absolute -bottom-1 left-0 right-0 h-px opacity-0 group-hover:opacity-100 transition-opacity" style={{
                     background: 'var(--color-border)'
                   }} />
                 </button>
               ) : (
                 <input
+                  ref={inputRef}
                   type="number"
                   step="0.01"
                   value={tempCostBasis}
                   onChange={(e) => setTempCostBasis(e.target.value)}
-                  onBlur={() => {
+                  onBlur={(e) => {
+                    e.stopPropagation()
                     const newBasis = parseFloat(tempCostBasis)
                     if (!isNaN(newBasis) && newBasis > 0) {
                       onCostBasisChange(newBasis)
@@ -797,16 +824,17 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
+                      e.stopPropagation()
                       const newBasis = parseFloat(tempCostBasis)
                       if (!isNaN(newBasis) && newBasis > 0) {
                         onCostBasisChange(newBasis)
                       }
                       setIsEditingCostBasis(false)
                     } else if (e.key === 'Escape') {
+                      e.stopPropagation()
                       setIsEditingCostBasis(false)
                     }
                   }}
-                  autoFocus
                   className="text-lg font-medium tracking-tight px-2 py-1"
                   style={{
                     width: '120px',
