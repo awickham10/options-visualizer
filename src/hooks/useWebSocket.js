@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
+import { logger } from '../lib/logger'
 
 /**
  * Custom hook to manage WebSocket connections for real-time data streaming
@@ -34,7 +35,7 @@ export function useWebSocket({
     const ws = new WebSocket('ws://localhost:3001')
 
     ws.onopen = () => {
-      console.log('WebSocket connected')
+      logger.info('WebSocket connected')
       setIsStreaming(true)
       // Subscribe to symbol
       ws.send(JSON.stringify({ type: 'subscribe', symbol }))
@@ -57,31 +58,31 @@ export function useWebSocket({
           break
 
         case 'error':
-          console.error('WebSocket error:', message.error)
+          logger.error('WebSocket error:', message.error)
           if (onError) {
             onError(message.error)
           }
           break
 
         case 'subscribed':
-          console.log(`Subscribed to ${message.symbol}`)
+          logger.info(`Subscribed to ${message.symbol}`)
           if (onSubscribed) {
             onSubscribed(message.symbol)
           }
           break
 
         default:
-          console.warn('Unknown message type:', message.type)
+          logger.warn('Unknown message type:', message.type)
       }
     }
 
     ws.onerror = (error) => {
-      console.error('WebSocket error:', error)
+      logger.error('WebSocket error:', error)
       setIsStreaming(false)
     }
 
     ws.onclose = () => {
-      console.log('WebSocket disconnected')
+      logger.info('WebSocket disconnected')
       setIsStreaming(false)
     }
 

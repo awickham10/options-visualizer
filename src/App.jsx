@@ -5,6 +5,7 @@ import { PriceChart } from './components/PriceChart'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useCoveredCallMetrics } from './hooks/useCoveredCallMetrics'
 import { formatPrice, formatDate, formatGreek, formatIV } from './lib/formatters'
+import { logger } from './lib/logger'
 
 function App() {
   const [symbol, setSymbol] = useState('')
@@ -49,7 +50,7 @@ function App() {
       setError(error)
     },
     onSubscribed: (symbol) => {
-      console.log(`Subscribed to ${symbol}`)
+      logger.info(`Subscribed to ${symbol}`)
     },
     setIsStreaming
   })
@@ -63,7 +64,7 @@ function App() {
         // Update streaming status but don't block the app
         setIsStreaming(data.streaming || false)
       } catch (err) {
-        console.error('Health check failed:', err)
+        logger.error('Health check failed:', err)
       }
     }
 
@@ -107,7 +108,7 @@ function App() {
       }
     } catch (err) {
       setError('Failed to connect to server')
-      console.error(err)
+      logger.error('Failed to fetch stock data:', err)
     } finally {
       setLoading(false)
     }
@@ -178,10 +179,10 @@ function App() {
         setSelectedCell(detailedCell)
       } else {
         // If fetch fails, just use the basic cell data
-        console.warn('Failed to load option details:', result.error)
+        logger.warn('Failed to load option details:', result.error)
       }
     } catch (err) {
-      console.error('Error fetching option details:', err)
+      logger.error('Error fetching option details:', err)
       // Keep showing basic data even if fetch fails
     } finally {
       setLoadingCellDetails(false)

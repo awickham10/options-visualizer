@@ -7,6 +7,8 @@
  * Note: This is CommonJS format for Node.js compatibility
  */
 
+const logger = require('./logger');
+
 /**
  * Regular expression for validating and parsing OCC option contract symbols
  * Groups: [symbol, dateYYMMDD, C/P, strikePriceInteger]
@@ -80,7 +82,7 @@ function parseContractSymbol(contractSymbol) {
       contractSymbol
     };
   } catch (error) {
-    console.error('Error parsing contract symbol:', contractSymbol, error);
+    logger.error({ error: error.message, stack: error.stack, contractSymbol }, 'Error parsing contract symbol');
     return null;
   }
 }

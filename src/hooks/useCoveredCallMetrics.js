@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { logger } from '../lib/logger'
 
 /**
  * Custom hook to calculate covered call financial metrics
@@ -14,7 +15,7 @@ export function useCoveredCallMetrics(cell, userCostBasis = null) {
 
     // Validate required fields
     if (!cell.expDate || !cell.bid || !cell.currentPrice || !cell.strike) {
-      console.warn('Missing required fields for covered call metrics:', cell)
+      logger.warn('Missing required fields for covered call metrics:', cell)
       return null
     }
 
@@ -30,17 +31,17 @@ export function useCoveredCallMetrics(cell, userCostBasis = null) {
 
     // Input validation to avoid division by zero and invalid calculations
     if (currentPrice <= 0) {
-      console.warn('Invalid currentPrice:', currentPrice)
+      logger.warn('Invalid currentPrice:', currentPrice)
       return { daysToExpiration, premium }
     }
 
     if (daysToExpiration === 0) {
-      console.warn('Option expires today, cannot calculate annualized returns')
+      logger.warn('Option expires today, cannot calculate annualized returns')
       return { daysToExpiration, premium }
     }
 
     if (basis <= 0) {
-      console.warn('Invalid cost basis:', basis)
+      logger.warn('Invalid cost basis:', basis)
       return { daysToExpiration, premium }
     }
 

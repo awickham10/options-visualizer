@@ -5,6 +5,7 @@ import { CallPutToggle } from './CallPutToggle'
 import { useOptionsData } from '../hooks/useOptionsData'
 import { priceToRowY as priceToRowYUtil, percentile, calculateIntensityRanges, getHeatmapColor } from '../lib/chartUtils'
 import { formatPrice, formatDateLabel } from '../lib/formatters'
+import { logger } from '../lib/logger'
 
 export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated, onCellSelect, costBasis, onCostBasisChange }) {
   const [selectedExpirations, setSelectedExpirations] = useState(new Set())
@@ -23,7 +24,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const inputRef = useRef(null)
 
   // Debug log whenever isEditingCostBasis changes
-  console.log('ModernOptionsChart render, isEditingCostBasis:', isEditingCostBasis)
+  logger.debug('ModernOptionsChart render, isEditingCostBasis:', isEditingCostBasis)
 
   // Focus input when editing starts
   useEffect(() => {
@@ -282,7 +283,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                     onClick={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
-                      console.log('Cost basis button clicked (sticky)')
+                      logger.debug('Cost basis button clicked (sticky)')
                       setIsEditingCostBasis(true)
                       setTempCostBasis(costBasis?.toFixed(2) || currentPrice.toFixed(2))
                     }}
@@ -419,7 +420,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                   onClick={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
-                    console.log('Cost basis button clicked (main)')
+                    logger.debug('Cost basis button clicked (main)')
                     setIsEditingCostBasis(true)
                     setTempCostBasis(costBasis?.toFixed(2) || currentPrice.toFixed(2))
                   }}

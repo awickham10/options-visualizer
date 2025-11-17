@@ -1,4 +1,5 @@
 const express = require('express');
+const logger = require('../utils/logger');
 const { fetchOptionsData, fetchOptionContract } = require('../api/alpacaService');
 
 const router = express.Router();
@@ -28,7 +29,8 @@ router.get('/options/:symbol', async (req, res) => {
 
     res.json({ success: true, data: allSnapshots });
   } catch (error) {
-    console.error('Error fetching options:', error);
+    const reqLogger = req.logger || logger;
+    reqLogger.error({ error: error.message, stack: error.stack, symbol }, 'Error fetching options');
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -43,7 +45,8 @@ router.get('/option/:contractSymbol', async (req, res) => {
     const result = await fetchOptionContract(contractSymbol);
     res.json(result);
   } catch (error) {
-    console.error('Error fetching option contract:', error);
+    const reqLogger = req.logger || logger;
+    reqLogger.error({ error: error.message, stack: error.stack, contractSymbol }, 'Error fetching option contract');
     const statusCode = error.message === 'Invalid contract symbol' ? 400 :
                        error.message === 'Contract not found' ? 404 : 500;
     res.status(statusCode).json({ success: false, error: error.message });

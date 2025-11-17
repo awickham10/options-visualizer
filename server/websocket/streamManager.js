@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const logger = require('../utils/logger');
 const alpaca = require('../config/alpaca');
 const { fetchOptionsData } = require('../api/alpacaService');
 
@@ -23,11 +24,11 @@ async function initializeAlpacaStream() {
     alpacaStream = alpaca.data_stream_v2;
 
     alpacaStream.onError((error) => {
-      console.error('Alpaca stream error:', error);
+      logger.error({ error: error.toString() }, 'Alpaca stream error');
       if (error.toString().includes('auth failed')) {
         authErrorCount++;
         if (authErrorCount >= MAX_AUTH_FAILURES) {
-          console.warn('WARNING: Real-time streaming not available. App will use REST API only.');
+          logger.warn('Real-time streaming not available. App will use REST API only.');
           streamingEnabled = false;
           streamConnected = false;
           // Don't treat streaming failure as critical - REST API still works
@@ -38,19 +39,19 @@ async function initializeAlpacaStream() {
     });
 
     alpacaStream.onStateChange((state) => {
-      console.log('Alpaca stream state:', state);
+      logger.info({ state }, 'Alpaca stream state changed');
       if (state === 'authenticated') {
         streamConnected = true;
         authErrorCount = 0;
-        console.log('Real-time streaming enabled');
+        logger.info('Real-time streaming enabled');
       }
     });
 
     try {
       await alpacaStream.connect();
-      console.log('Alpaca data stream connected');
+      logger.info('Alpaca data stream connected');
     } catch (error) {
-      console.error('Failed to connect Alpaca stream:', error);
+      logger.error({ error: error.message, stack: error.stack }, 'Failed to connect Alpaca stream');
       streamConnected = false;
     }
   }
@@ -73,7 +74,7 @@ function getStreamingStatus() {
  * @param {WebSocket} ws - WebSocket client connection
  */
 function handleConnection(ws) {
-  console.log('Client connected to WebSocket');
+  logger.info('Client connected to WebSocket');
 
   let currentSymbol = null;
 
@@ -91,7 +92,7 @@ function handleConnection(ws) {
         currentSymbol = null;
       }
     } catch (error) {
-      console.error('WebSocket message error:', error);
+      logger.error({ error: error.message, stack: error.stack }, 'WebSocket message error');
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'error', error: error.message }));
       }
@@ -99,14 +100,14 @@ function handleConnection(ws) {
   });
 
   ws.on('close', async () => {
-    console.log('Client disconnected');
+    logger.info('Client disconnected');
     if (currentSymbol) {
       await handleUnsubscribe(currentSymbol);
     }
   });
 
   ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
+    logger.error({ error: error.message }, 'WebSocket error');
   });
 }
 
@@ -117,7 +118,7 @@ function handleConnection(ws) {
  * @param {string} previousSymbol - Previously subscribed symbol (if any)
  */
 async function handleSubscribe(ws, symbol, previousSymbol) {
-  console.log(`Subscribing to ${symbol} streams`);
+  logger.info({ symbol }, 'Subscribing to symbol streams');
 
   // Check if stream is connected
   if (!streamConnected) {
@@ -125,15 +126,15 @@ async function handleSubscribe(ws, symbol, previousSymbol) {
       type: 'error',
       error: 'Real-time data stream not available. Showing historical data only.'
     }));
-    console.warn('Alpaca stream not connected, skipping subscription');
+    logger.warn('Alpaca stream not connected, skipping subscription');
   } else {
     // Unsubscribe from previous symbol if any
     if (previousSymbol) {
       try {
         await alpacaStream.unsubscribe(['bars'], [previousSymbol]);
-        console.log(`Unsubscribed from ${previousSymbol}`);
+        logger.info({ symbol: previousSymbol }, 'Unsubscribed from symbol');
       } catch (e) {
-        console.log('Error unsubscribing:', e.message);
+        logger.warn({ error: e.message, symbol: previousSymbol }, 'Error unsubscribing');
       }
     }
 
@@ -158,9 +159,9 @@ async function handleSubscribe(ws, symbol, previousSymbol) {
     // Subscribe to bars for this symbol
     try {
       await alpacaStream.subscribe(['bars'], [symbol]);
-      console.log(`Subscribed to bars for ${symbol}`);
+      logger.info({ symbol }, 'Subscribed to bars');
     } catch (error) {
-      console.error('Failed to subscribe:', error);
+      logger.error({ error: error.message, symbol }, 'Failed to subscribe');
       ws.send(JSON.stringify({ type: 'error', error: 'Failed to subscribe to real-time data' }));
     }
   }
@@ -186,7 +187,7 @@ async function handleSubscribe(ws, symbol, previousSymbol) {
       }));
     }
   } catch (error) {
-    console.error('Failed to fetch options:', error);
+    logger.error({ error: error.message, symbol }, 'Failed to fetch options');
   }
 
   if (ws.readyState === WebSocket.OPEN) {
@@ -202,9 +203,9 @@ async function handleUnsubscribe(symbol) {
   if (alpacaStream && symbol && streamConnected) {
     try {
       await alpacaStream.unsubscribe(['bars'], [symbol]);
-      console.log(`Unsubscribed from ${symbol}`);
+      logger.info({ symbol }, 'Unsubscribed from symbol');
     } catch (e) {
-      console.log('Error cleaning up:', e.message);
+      logger.warn({ error: e.message, symbol }, 'Error cleaning up subscription');
     }
   }
 }

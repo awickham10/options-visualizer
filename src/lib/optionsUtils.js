@@ -6,6 +6,8 @@
  * Example: AAPL251219C00150000 = AAPL Dec 19, 2025 Call @ $150.00
  */
 
+import { logger } from './logger'
+
 /**
  * Regular expression for validating and parsing OCC option contract symbols
  * Groups: [symbol, dateYYMMDD, C/P, strikePriceInteger]
@@ -79,7 +81,7 @@ export function parseContractSymbol(contractSymbol) {
       contractSymbol
     }
   } catch (error) {
-    console.error('Error parsing contract symbol:', contractSymbol, error)
+    logger.error('Error parsing contract symbol:', contractSymbol, error)
     return null
   }
 }

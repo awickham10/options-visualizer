@@ -1,4 +1,5 @@
 const express = require('express');
+const logger = require('../utils/logger');
 const { fetchBars, fetchQuote } = require('../api/alpacaService');
 
 const router = express.Router();
@@ -15,7 +16,8 @@ router.get('/bars/:symbol', async (req, res) => {
     const result = await fetchBars(symbol, { timeframe, start, end, limit });
     res.json(result);
   } catch (error) {
-    console.error('Error fetching bars:', error);
+    const reqLogger = req.logger || logger;
+    reqLogger.error({ error: error.message, stack: error.stack, symbol }, 'Error fetching bars');
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -30,7 +32,8 @@ router.get('/quote/:symbol', async (req, res) => {
     const result = await fetchQuote(symbol);
     res.json(result);
   } catch (error) {
-    console.error('Error fetching quote:', error);
+    const reqLogger = req.logger || logger;
+    reqLogger.error({ error: error.message, stack: error.stack, symbol }, 'Error fetching quote');
     res.status(500).json({ success: false, error: error.message });
   }
 });

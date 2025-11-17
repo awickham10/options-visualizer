@@ -193,6 +193,38 @@ Connect to `ws://localhost:3001` and send/receive JSON messages:
 | `ALPACA_API_SECRET` | Your Alpaca secret key | Required |
 | `ALPACA_PAPER` | Use paper trading account | `true` |
 | `ALPACA_BASE_URL` | Alpaca API base URL | `https://api.alpaca.markets` |
+| `LOG_LEVEL` | Backend logging level (`debug`, `info`, `warn`, `error`) | `info` |
+| `NODE_ENV` | Environment mode (`development`, `production`) | `development` |
+
+### Logging
+
+The application uses structured logging with environment-aware configuration:
+
+**Frontend Logging:**
+- Uses a lightweight custom logger with log levels: DEBUG, INFO, WARN, ERROR
+- In production (`vite build`): Only WARN and ERROR messages are logged
+- In development: All log levels are active
+- Logs are automatically suppressed in production to improve performance
+
+**Backend Logging:**
+- Uses [Pino](https://github.com/pinojs/pino) for fast, structured logging
+- Log levels: `debug`, `info`, `warn`, `error`
+- Development: Pretty-printed, human-readable logs with colors
+- Production: JSON-formatted logs optimized for monitoring tools (e.g., CloudWatch, Datadog)
+- Each HTTP request includes a unique Request ID for tracing
+- All logs include contextual information (timestamp, request ID, error stacks, etc.)
+
+**Configuring Log Level:**
+
+Set the `LOG_LEVEL` environment variable in your `.env` file:
+```env
+LOG_LEVEL=info  # Options: debug, info, warn, error
+```
+
+- `debug`: Verbose debugging information (development only)
+- `info`: General informational messages (default)
+- `warn`: Warning messages and errors
+- `error`: Only error messages
 
 ### Data Feed
 
