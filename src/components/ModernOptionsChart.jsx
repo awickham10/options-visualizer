@@ -1,10 +1,34 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { HeatmapToggle } from './HeatmapToggle'
+import { CallPutToggle } from './CallPutToggle'
 
-export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated, onCellSelect }) {
+export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated, onCellSelect, costBasis, onCostBasisChange }) {
   const [selectedExpirations, setSelectedExpirations] = useState(new Set())
   const [selectedStrikes, setSelectedStrikes] = useState(new Set())
   const [heatmapMode, setHeatmapMode] = useState('volume')
+  const [optionType, setOptionType] = useState('call')
+  const [isEditingCostBasis, setIsEditingCostBasis] = useState(false)
+  const [tempCostBasis, setTempCostBasis] = useState('')
+  const [hoveredPoint, setHoveredPoint] = useState(null)
+  const [hoveredCell, setHoveredCell] = useState(null)
+  const [scrollTop, setScrollTop] = useState(0)
+  const [showStickyHeader, setShowStickyHeader] = useState(false)
+  const svgRef = useRef(null)
+  const containerRef = useRef(null)
+  const headerRef = useRef(null)
+  const inputRef = useRef(null)
+
+  // Debug log whenever isEditingCostBasis changes
+  console.log('ModernOptionsChart render, isEditingCostBasis:', isEditingCostBasis)
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (isEditingCostBasis && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [isEditingCostBasis])
 
   const handleExpirationClick = (expDate) => {
     setSelectedExpirations(prev => {
@@ -36,6 +60,50 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
       onCellSelect(cell)
     }
   }
+
+  // Throttle hover to reduce repaints - only update every 50ms
+  const hoverTimeoutRef = useRef(null)
+  const handleCellHover = useCallback((cell) => {
+    if (hoverTimeoutRef.current) return
+
+    setHoveredCell(cell)
+    hoverTimeoutRef.current = setTimeout(() => {
+      hoverTimeoutRef.current = null
+    }, 50)
+  }, [])
+
+  const handleCellLeave = useCallback(() => {
+    setHoveredCell(null)
+  }, [])
+
+  // Track scroll position to show/hide sticky header using IntersectionObserver
+  useEffect(() => {
+    // Wait for both data and header ref to be available
+    if (!data || data.length === 0 || !headerRef.current) {
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // When the top of the sentinel goes above the viewport, show sticky header
+        const shouldShow = entry.boundingClientRect.top < 0
+        setShowStickyHeader(shouldShow)
+      },
+      {
+        root: null, // Use viewport as root
+        threshold: [0, 0.1, 0.5, 1],
+        rootMargin: '0px'
+      }
+    )
+
+    const headerElement = headerRef.current
+    observer.observe(headerElement)
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [data?.length])  // Run when data length changes (more stable than data array)
+
   const chartData = useMemo(() => {
     if (!data || data.length === 0) return null
 
@@ -137,24 +205,34 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           callCount++
         }
 
-        // Store the option data (we'll use the call for display, but have both for ratio)
-        if (!optionsByExp[expDate][strike] || optionType === 'C') {
-          optionsByExp[expDate][strike] = {
-            strike,
-            expDate: new Date(expDate),
-            contractSymbol,
-            optionType,
-            price: latestQuote.ap || latestQuote.bp || 0,
-            bid: latestQuote.bp || 0,
-            ask: latestQuote.ap || 0,
-            bidSize: latestQuote.bs || 0,
-            askSize: latestQuote.as || 0,
-            lastPrice: latestTrade?.p || 0,
-            volume: latestTrade?.s || 0,
-            impliedVolatility: optData.greeks?.implied_volatility || 0,
-            openInterest: optData.openInterest || 0,
-            isITM: strike < currentPrice
-          }
+        // Store both calls and puts separately
+        if (!optionsByExp[expDate][strike]) {
+          optionsByExp[expDate][strike] = {}
+        }
+
+        const optionKey = optionType === 'C' ? 'call' : 'put'
+        const greeks = optData.greeks || {}
+        optionsByExp[expDate][strike][optionKey] = {
+          strike,
+          expDate: new Date(expDate),
+          contractSymbol,
+          optionType,
+          price: latestQuote?.ap || latestQuote?.bp || 0,
+          bid: latestQuote?.bp || 0,
+          ask: latestQuote?.ap || 0,
+          bidSize: latestQuote?.bs || 0,
+          askSize: latestQuote?.as || 0,
+          lastPrice: latestTrade?.p || 0,
+          volume: latestTrade?.s || 0,
+          impliedVolatility: optData.impliedVolatility || 0,
+          openInterest: optData.openInterest || 0,
+          isITM: optionType === 'C' ? strike < currentPrice : strike > currentPrice,
+          // Greeks from API
+          delta: greeks.delta || 0,
+          gamma: greeks.gamma || 0,
+          theta: greeks.theta || 0,
+          vega: greeks.vega || 0,
+          currentPrice // Add current price for calculations
         }
       })
 
@@ -214,8 +292,15 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             ? data.putOI / data.callOI
             : (data.putOI > 0 ? 2 : 0)
 
-          optionsByExp[expDateStr][strike].pcRatioVolume = pcRatioVolume
-          optionsByExp[expDateStr][strike].pcRatioOI = pcRatioOI
+          // Add P/C ratios to both call and put if they exist
+          if (optionsByExp[expDateStr][strike].call) {
+            optionsByExp[expDateStr][strike].call.pcRatioVolume = pcRatioVolume
+            optionsByExp[expDateStr][strike].call.pcRatioOI = pcRatioOI
+          }
+          if (optionsByExp[expDateStr][strike].put) {
+            optionsByExp[expDateStr][strike].put.pcRatioVolume = pcRatioVolume
+            optionsByExp[expDateStr][strike].put.pcRatioOI = pcRatioOI
+          }
         }
       })
 
@@ -228,22 +313,48 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         .map(d => new Date(d))
 
       // Get sorted unique strikes - use ALL strikes without filtering
-      const strikes = Array.from(allStrikes).sort((a, b) => a - b)
+      // Sort descending so high prices are at the top
+      let strikes = Array.from(allStrikes).sort((a, b) => b - a)
 
-      // Extend price range to include all strikes
+      // Filter out strikes where all contracts across all expirations have zero bid/ask
+      // This trims the chart vertically to show only actionable price ranges
+      strikes = strikes.filter(strike => {
+        // Check if ANY expiration for this strike has non-zero bid/ask
+        return Array.from(allExpirations).some(expDate => {
+          const optionData = optionsByExp[expDate]?.[strike]
+          if (!optionData) return false
+
+          // Check both call and put for non-zero bid/ask
+          const callData = optionData.call
+          const putData = optionData.put
+
+          const callHasValue = callData && (callData.bid > 0 || callData.ask > 0)
+          const putHasValue = putData && (putData.bid > 0 || putData.ask > 0)
+
+          return callHasValue || putHasValue
+        })
+      })
+
+      // Set price range to exactly match strike range so chart aligns properly
+      // strikes are sorted descending, so strikes[0] is highest, strikes[last] is lowest
       if (strikes.length > 0) {
-        extendedMin = Math.min(extendedMin, strikes[0])
-        extendedMax = Math.max(extendedMax, strikes[strikes.length - 1])
+        extendedMin = strikes[strikes.length - 1]  // lowest strike
+        extendedMax = strikes[0]  // highest strike
       }
 
       // Build options grid aligned with strikes and expirations
+      // Filter by selected option type (call or put)
       const optionsGrid = strikes.map(strike => {
         return expirations.map(expDate => {
           const expKey = expDate.toISOString().split('T')[0]
-          const option = optionsByExp[expKey]?.[strike]
+          const optionData = optionsByExp[expKey]?.[strike]
 
-          if (option) {
-            return option
+          // Extract the selected option type (call or put)
+          if (optionData) {
+            const option = optionData[optionType]
+            if (option) {
+              return option
+            }
           }
 
           // Return null if no data
@@ -288,7 +399,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
       maxPrice: extendedMax,
       noOptionsData: true
     }
-  }, [data, optionsData])
+  }, [data, optionsData, optionType])
 
   if (!chartData) {
     return (
@@ -311,11 +422,10 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const historicalWidthBase = 800  // Fixed width for historical section
   const width = marginLeft + historicalWidthBase + calculatedOptionsWidth + marginRight
 
-  // Dynamic height based on number of strikes
-  const minCellHeight = 25  // Minimum height per strike row
-  const baseHeight = 600
-  const calculatedHeight = Math.max(baseHeight, strikes.length * minCellHeight + 160)
-  const height = calculatedHeight
+  // Fixed cell height for options grid
+  const FIXED_CELL_HEIGHT = 30  // Fixed 30px per strike row
+  const CHART_HEIGHT = strikes.length * FIXED_CELL_HEIGHT  // Total height based on number of strikes
+  const height = CHART_HEIGHT + marginTop + marginBottom
 
   const chartWidth = width - marginLeft - marginRight
   const chartHeight = height - marginTop - marginBottom
@@ -323,21 +433,74 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const historicalWidth = historicalWidthBase
   const optionsWidth = calculatedOptionsWidth
 
-  const priceScale = (price) => {
-    return marginTop + chartHeight - ((price - minPrice) / (maxPrice - minPrice)) * chartHeight
+  // Convert price to row-based Y position with interpolation for accurate alignment
+  // This is THE SINGLE SOURCE OF TRUTH for all price-to-Y conversions
+  const priceToRowY = (price) => {
+    if (strikes.length === 0) return marginTop
+
+    // Strikes are sorted descending (highest to lowest)
+    // Find the two strikes that bound this price
+    let upperIdx = -1
+    let lowerIdx = -1
+
+    for (let i = 0; i < strikes.length; i++) {
+      if (strikes[i] >= price) {
+        upperIdx = i
+      } else {
+        lowerIdx = i
+        break
+      }
+    }
+
+    // Handle edge cases
+    if (upperIdx === -1) {
+      // Price is above all strikes
+      return marginTop + (FIXED_CELL_HEIGHT / 2)
+    }
+    if (lowerIdx === -1) {
+      // Price is below all strikes
+      return marginTop + ((strikes.length - 1) * FIXED_CELL_HEIGHT) + (FIXED_CELL_HEIGHT / 2)
+    }
+
+    // Interpolate between the two strikes
+    const upperStrike = strikes[upperIdx]
+    const lowerStrike = strikes[lowerIdx]
+    const ratio = (upperStrike - price) / (upperStrike - lowerStrike)
+
+    const upperY = marginTop + (upperIdx * FIXED_CELL_HEIGHT) + (FIXED_CELL_HEIGHT / 2)
+    const lowerY = marginTop + (lowerIdx * FIXED_CELL_HEIGHT) + (FIXED_CELL_HEIGHT / 2)
+
+    return upperY + ratio * (lowerY - upperY)
   }
 
   // Sample historical data for rendering
   const sampledHistorical = historical.filter((_, idx) => idx % 2 === 0)
 
-  const linePath = sampledHistorical.map((point, idx) => {
+  // Create full path data for the line chart
+  const linePathData = sampledHistorical.map((point, idx) => {
     const x = marginLeft + (historical.indexOf(point) / (historical.length - 1)) * historicalWidth
-    const y = priceScale(point.price)
-    return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`
+    const y = priceToRowY(point.price)
+    return { x, y, ...point }
+  })
+
+  const linePath = linePathData.map((point, idx) => {
+    return `${idx === 0 ? 'M' : 'L'} ${point.x} ${point.y}`
   }).join(' ')
 
+  // Create area path for gradient fill
+  const areaPath = linePathData.length > 0
+    ? linePath +
+      ` L ${linePathData[linePathData.length - 1].x} ${height - marginBottom}` +
+      ` L ${linePathData[0].x} ${height - marginBottom} Z`
+    : ''
+
   const cellWidth = optionsWidth / expirations.length
-  const cellHeight = Math.max(20, chartHeight / strikes.length) // Minimum 20px cell height
+  const cellHeight = FIXED_CELL_HEIGHT // Fixed height for all cells
+
+  // Volume bar chart data
+  const volumeHeight = 60 // Height of volume chart area
+  const maxVolume = Math.max(...historical.map(h => h.volume || 0), 1)
+  const volumeY = height - marginBottom + 10 // Position below the main chart
 
   // Helper function to calculate percentile
   const percentile = (arr, p) => {
@@ -352,57 +515,254 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
     return sorted[lower] * (1 - weight) + sorted[upper] * weight
   }
 
-  // Calculate intensity based on heatmap mode with outlier handling
+  // Pre-calculate intensity ranges once per heatmap mode change
+  const intensityRanges = useMemo(() => {
+    const validCells = optionsGrid.flat().filter(c => c)
+
+    const ranges = {}
+    const modes = ['volume', 'iv', 'oi', 'pc', 'delta']
+
+    modes.forEach(mode => {
+      let values = []
+      switch (mode) {
+        case 'volume':
+          values = validCells.map(c => c.volume || 0)
+          break
+        case 'iv':
+          values = validCells.map(c => c.impliedVolatility || 0)
+          break
+        case 'oi':
+          values = validCells.map(c => c.openInterest || 0)
+          break
+        case 'pc':
+          values = validCells.map(c => c.pcRatioVolume || 0)
+          break
+        case 'delta':
+          values = validCells.map(c => Math.abs(c.delta || 0))
+          break
+      }
+
+      ranges[mode] = {
+        min: percentile(values, 5),
+        max: percentile(values, 95) || (mode === 'iv' || mode === 'pc' || mode === 'delta' ? 0.01 : 1)
+      }
+    })
+
+    return ranges
+  }, [optionsGrid, heatmapMode])
+
+  // Optimized intensity calculation using pre-calculated ranges
   const calculateIntensity = (cell) => {
     if (!cell) return 0
 
     let value = 0
-    let minValue = 0
-    let maxValue = 1
-
-    const validCells = optionsGrid.flat().filter(c => c)
+    const range = intensityRanges[heatmapMode] || { min: 0, max: 1 }
 
     switch (heatmapMode) {
       case 'volume':
         value = cell.volume || 0
-        const volumes = validCells.map(c => c.volume || 0)
-        minValue = percentile(volumes, 5)  // 5th percentile
-        maxValue = percentile(volumes, 95) || 1  // 95th percentile
         break
       case 'iv':
         value = cell.impliedVolatility || 0
-        const ivs = validCells.map(c => c.impliedVolatility || 0)
-        minValue = percentile(ivs, 5)
-        maxValue = percentile(ivs, 95) || 0.01
         break
       case 'oi':
         value = cell.openInterest || 0
-        const ois = validCells.map(c => c.openInterest || 0)
-        minValue = percentile(ois, 5)
-        maxValue = percentile(ois, 95) || 1
         break
       case 'pc':
         value = cell.pcRatioVolume || 0
-        const pcRatios = validCells.map(c => c.pcRatioVolume || 0)
-        minValue = percentile(pcRatios, 5)
-        maxValue = percentile(pcRatios, 95) || 0.01
+        break
+      case 'delta':
+        value = Math.abs(cell.delta || 0)
         break
       default:
         value = cell.volume || 0
-        const defaultVolumes = validCells.map(c => c.volume || 0)
-        minValue = percentile(defaultVolumes, 5)
-        maxValue = percentile(defaultVolumes, 95) || 1
     }
 
     // Normalize to 0-1 range based on percentiles (clamp outliers)
-    if (maxValue === minValue) return 0
-    const intensity = (value - minValue) / (maxValue - minValue)
+    if (range.max === range.min) return 0
+    const intensity = (value - range.min) / (range.max - range.min)
     return Math.max(0, Math.min(intensity, 1))  // Clamp to [0, 1]
   }
 
+  // Move color calculation outside render loop
+  const getHeatmapColor = (intensity) => {
+    if (intensity === 0) return '#FAFAFA'
+    const r = Math.round(255 - (255 * intensity))
+    const g = Math.round(255 - (184 * intensity))
+    const b = 255
+    return `rgb(${r}, ${g}, ${b})`
+  }
+
+  // Virtualization: Only render visible rows + buffer
+  const OVERSCAN_ROWS = 5 // Render extra rows above/below viewport
+  const containerHeight = height - marginTop - marginBottom
+  const visibleRowCount = Math.ceil(containerHeight / cellHeight)
+  const firstVisibleRow = Math.max(0, Math.floor(scrollTop / cellHeight) - OVERSCAN_ROWS)
+  const lastVisibleRow = Math.min(strikes.length, firstVisibleRow + visibleRowCount + OVERSCAN_ROWS * 2)
+  const visibleRows = optionsGrid.slice(firstVisibleRow, lastVisibleRow)
+
   return (
-    <div className="relative">
-      <div className="bg-white p-12" style={{ border: '1px solid var(--color-border)' }}>
+    <>
+      {/* Sticky Header - rendered via portal to document.body */}
+      {chartData && createPortal(
+        <div
+          className="left-0 right-0 bg-white transition-all duration-300 ease-out"
+          style={{
+            position: 'fixed',
+            top: showStickyHeader ? '0' : '-200px',
+            left: 0,
+            right: 0,
+            borderBottom: '1px solid var(--color-border)',
+            opacity: showStickyHeader ? 1 : 0,
+            boxShadow: showStickyHeader ? '0 4px 12px rgba(0, 0, 0, 0.08)' : 'none',
+            zIndex: 1000,
+            pointerEvents: showStickyHeader ? 'auto' : 'none'
+          }}
+        >
+          <div className="max-w-[1800px] mx-auto px-8 py-4">
+            <div className="flex items-center justify-between gap-8">
+              {/* Left: Symbol + Price + Cost Basis */}
+              <div className="flex items-center gap-6">
+                <h3 className="text-3xl font-light tracking-[-0.02em]" style={{
+                  color: 'var(--color-text-primary)',
+                  fontFamily: 'Manrope, sans-serif',
+                  fontWeight: 300
+                }}>
+                  {symbol}
+                </h3>
+
+                <div className="h-8 w-px" style={{ background: 'var(--color-border)' }} />
+
+                <div className="flex items-baseline gap-3">
+                  <div className="text-[9px] uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+                    Current
+                  </div>
+                  <div className="text-2xl font-light tracking-[-0.02em]" style={{
+                    color: 'var(--color-text-primary)',
+                    fontFamily: 'Manrope, sans-serif',
+                    fontWeight: 300
+                  }}>
+                    ${currentPrice.toFixed(2)}
+                </div>
+              </div>
+
+              <div className="h-8 w-px" style={{ background: 'var(--color-border)' }} />
+
+              {/* Cost Basis - Compact */}
+              <div className="flex items-baseline gap-3">
+                <span className="text-[9px] uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Cost Basis
+                </span>
+                {!isEditingCostBasis ? (
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      console.log('Cost basis button clicked (sticky)')
+                      setIsEditingCostBasis(true)
+                      setTempCostBasis(costBasis?.toFixed(2) || currentPrice.toFixed(2))
+                    }}
+                    className="group relative text-lg font-medium tracking-tight transition-all group-hover:opacity-60"
+                    style={{
+                      cursor: 'pointer',
+                      color: 'var(--color-text-primary)',
+                      fontFamily: 'DM Mono, monospace',
+                      background: 'none',
+                      border: 'none',
+                      padding: 0
+                    }}
+                  >
+                    ${(costBasis || currentPrice).toFixed(2)}
+                    <div className="absolute -bottom-1 left-0 right-0 h-px opacity-0 group-hover:opacity-100 transition-opacity" style={{
+                      background: 'var(--color-border)'
+                    }} />
+                  </button>
+                ) : (
+                  <input
+                    ref={inputRef}
+                    type="number"
+                    step="0.01"
+                    value={tempCostBasis}
+                    onChange={(e) => setTempCostBasis(e.target.value)}
+                    onBlur={(e) => {
+                      e.stopPropagation()
+                      const newBasis = parseFloat(tempCostBasis)
+                      if (!isNaN(newBasis) && newBasis > 0) {
+                        onCostBasisChange(newBasis)
+                      }
+                      setIsEditingCostBasis(false)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.stopPropagation()
+                        const newBasis = parseFloat(tempCostBasis)
+                        if (!isNaN(newBasis) && newBasis > 0) {
+                          onCostBasisChange(newBasis)
+                        }
+                        setIsEditingCostBasis(false)
+                      } else if (e.key === 'Escape') {
+                        e.stopPropagation()
+                        setIsEditingCostBasis(false)
+                      }
+                    }}
+                    className="text-lg font-medium tracking-tight px-2 py-1"
+                    style={{
+                      width: '120px',
+                      color: 'var(--color-text-primary)',
+                      fontFamily: 'DM Mono, monospace',
+                      border: '1px solid var(--color-accent)',
+                      background: 'transparent',
+                      outline: 'none'
+                    }}
+                  />
+                )}
+              </div>
+
+              {/* Position P/L - Compact */}
+              {costBasis && costBasis !== currentPrice && (
+                <>
+                  <div className="h-8 w-px" style={{ background: 'var(--color-border)' }} />
+                  <div className="flex items-baseline gap-2">
+                    <div className="text-[9px] uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+                      P/L
+                    </div>
+                    <div className="text-base font-semibold" style={{
+                      color: currentPrice > costBasis ? '#10b981' : currentPrice < costBasis ? '#ef4444' : 'var(--color-text-secondary)',
+                      fontFamily: 'DM Mono, monospace'
+                    }}>
+                      {currentPrice > costBasis ? '+' : ''}{(((currentPrice - costBasis) / costBasis) * 100).toFixed(2)}%
+                    </div>
+                  </div>
+                </>
+              )}
+              </div>
+
+              {/* Right: Toggles */}
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-3">
+                  <span className="text-[9px] uppercase tracking-[0.2em] font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>
+                    Type
+                  </span>
+                  <CallPutToggle optionType={optionType} onTypeChange={setOptionType} />
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[9px] uppercase tracking-[0.2em] font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>
+                    Heatmap
+                  </span>
+                  <HeatmapToggle mode={heatmapMode} onModeChange={setHeatmapMode} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      <div className="relative" ref={containerRef}>
+        {/* Sentinel element for IntersectionObserver */}
+        <div ref={headerRef} style={{ position: 'absolute', top: 0, left: 0, width: '1px', height: '1px', pointerEvents: 'none' }} />
+
+        <div className="bg-white p-12" style={{ border: '1px solid var(--color-border)' }}>
       {/* Header */}
       <div className="mb-12 pb-8" style={{ borderBottom: '1px solid var(--color-border)' }}>
         <div className="flex items-baseline justify-between mb-8">
@@ -421,79 +781,266 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             }}>
               ${currentPrice.toFixed(2)}
             </div>
-            <div className="text-[10px] uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+            <div className="text-[10px] uppercase tracking-[0.2em] font-medium mb-3" style={{ color: 'var(--color-text-tertiary)' }}>
               Current
             </div>
+
+            {/* Cost Basis Input */}
+            <div className="flex items-baseline justify-end gap-2 mt-4">
+              <span className="text-[9px] uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+                Cost Basis
+              </span>
+              {!isEditingCostBasis ? (
+                <button
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    console.log('Cost basis button clicked (main)')
+                    setIsEditingCostBasis(true)
+                    setTempCostBasis(costBasis?.toFixed(2) || currentPrice.toFixed(2))
+                  }}
+                  className="group relative text-lg font-medium tracking-tight transition-all group-hover:opacity-60"
+                  style={{
+                    cursor: 'pointer',
+                    color: 'var(--color-text-primary)',
+                    fontFamily: 'DM Mono, monospace',
+                    background: 'none',
+                    border: 'none',
+                    padding: 0
+                  }}
+                >
+                  ${(costBasis || currentPrice).toFixed(2)}
+                  <div className="absolute -bottom-1 left-0 right-0 h-px opacity-0 group-hover:opacity-100 transition-opacity" style={{
+                    background: 'var(--color-border)'
+                  }} />
+                </button>
+              ) : (
+                <input
+                  ref={inputRef}
+                  type="number"
+                  step="0.01"
+                  value={tempCostBasis}
+                  onChange={(e) => setTempCostBasis(e.target.value)}
+                  onBlur={(e) => {
+                    e.stopPropagation()
+                    const newBasis = parseFloat(tempCostBasis)
+                    if (!isNaN(newBasis) && newBasis > 0) {
+                      onCostBasisChange(newBasis)
+                    }
+                    setIsEditingCostBasis(false)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.stopPropagation()
+                      const newBasis = parseFloat(tempCostBasis)
+                      if (!isNaN(newBasis) && newBasis > 0) {
+                        onCostBasisChange(newBasis)
+                      }
+                      setIsEditingCostBasis(false)
+                    } else if (e.key === 'Escape') {
+                      e.stopPropagation()
+                      setIsEditingCostBasis(false)
+                    }
+                  }}
+                  className="text-lg font-medium tracking-tight px-2 py-1"
+                  style={{
+                    width: '120px',
+                    color: 'var(--color-text-primary)',
+                    fontFamily: 'DM Mono, monospace',
+                    border: '1px solid var(--color-accent)',
+                    background: 'transparent',
+                    outline: 'none'
+                  }}
+                />
+              )}
+            </div>
+
+            {/* Unrealized P/L Display */}
+            {costBasis && costBasis !== currentPrice && (
+              <div className="mt-2 flex items-center justify-end gap-2">
+                <div className="text-[9px] uppercase tracking-[0.2em] font-medium" style={{ color: 'var(--color-text-tertiary)' }}>
+                  Position
+                </div>
+                <div className="text-sm font-semibold" style={{
+                  color: currentPrice > costBasis ? '#10b981' : currentPrice < costBasis ? '#ef4444' : 'var(--color-text-secondary)',
+                  fontFamily: 'DM Mono, monospace'
+                }}>
+                  {currentPrice > costBasis ? '+' : ''}{(((currentPrice - costBasis) / costBasis) * 100).toFixed(2)}%
+                </div>
+                <div className="text-[10px]" style={{
+                  color: currentPrice > costBasis ? '#10b981' : currentPrice < costBasis ? '#ef4444' : 'var(--color-text-secondary)',
+                  fontFamily: 'DM Mono, monospace'
+                }}>
+                  (${currentPrice > costBasis ? '+' : ''}{(currentPrice - costBasis).toFixed(2)})
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Heatmap Mode Toggle */}
-        <div className="flex items-center gap-4">
-          <span className="text-[10px] uppercase tracking-[0.2em] font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>
-            Heatmap
-          </span>
-          <HeatmapToggle mode={heatmapMode} onModeChange={setHeatmapMode} />
+        {/* Toggles */}
+        <div className="flex items-center gap-8">
+          <div className="flex items-center gap-4">
+            <span className="text-[10px] uppercase tracking-[0.2em] font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>
+              Option Type
+            </span>
+            <CallPutToggle optionType={optionType} onTypeChange={setOptionType} />
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-[10px] uppercase tracking-[0.2em] font-semibold" style={{ color: 'var(--color-text-tertiary)' }}>
+              Heatmap
+            </span>
+            <HeatmapToggle mode={heatmapMode} onModeChange={setHeatmapMode} />
+          </div>
         </div>
       </div>
 
       {/* Chart */}
-      <div className="w-full overflow-x-auto">
-        <svg width={width} height={height}>
+      <div className="w-full overflow-x-auto overflow-y-visible" style={{ paddingBottom: '16px' }}>
+        <svg ref={svgRef} width={width} height={height}>
         <defs>
           <filter id="shadow">
             <feDropShadow dx="0" dy="2" stdDeviation="4" floodOpacity="0.1"/>
           </filter>
+          <linearGradient id="priceGradient" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="#0A0A0A" stopOpacity="0.1"/>
+            <stop offset="100%" stopColor="#0A0A0A" stopOpacity="0"/>
+          </linearGradient>
         </defs>
 
         {/* Grid lines */}
-        {strikes.map((strike, idx) => {
-          const y = priceScale(strike)
-          const isSelected = selectedStrikes.has(strike)
-          return (
-            <g key={`grid-${idx}`}>
-              <line
-                x1={marginLeft}
-                y1={y}
-                x2={width - marginRight}
-                y2={y}
-                stroke={isSelected ? "#0047FF" : "#E8E8E8"}
-                strokeWidth={isSelected ? 1 : 0.5}
-                opacity={isSelected ? 0.4 : 0.3}
-              />
-              <text
-                x={marginLeft - 15}
-                y={y + 4}
-                textAnchor="end"
-                fontSize="11"
-                fontWeight={isSelected ? "600" : "400"}
-                fill={isSelected ? "#0047FF" : "#A3A3A3"}
-                fontFamily="DM Sans, sans-serif"
-                letterSpacing="0.02em"
-                style={{ cursor: 'pointer' }}
-                onClick={() => handleStrikeClick(strike)}
-              >
-                ${strike.toFixed(0)}
-              </text>
-            </g>
-          )
-        })}
+        {(() => {
+          const minLabelSpacing = 25 // Minimum pixels between labels
+          const maxLabels = Math.floor(chartHeight / minLabelSpacing)
+          const labelInterval = Math.max(1, Math.ceil(strikes.length / maxLabels))
+
+          return strikes.map((strike, idx) => {
+            // Use row index for positioning instead of price scale
+            const y = marginTop + (idx * cellHeight)
+            const isSelected = selectedStrikes.has(strike)
+            const shouldShowLabel = idx % labelInterval === 0 || isSelected
+
+            return (
+              <g key={`grid-${idx}`}>
+                <line
+                  x1={marginLeft}
+                  y1={y}
+                  x2={width - marginRight}
+                  y2={y}
+                  stroke={isSelected ? "#0047FF" : "#E8E8E8"}
+                  strokeWidth={isSelected ? 1 : 0.5}
+                  opacity={isSelected ? 0.4 : 0.3}
+                />
+                {shouldShowLabel && (
+                  <text
+                    x={marginLeft - 15}
+                    y={y + cellHeight / 2 + 4}
+                    textAnchor="end"
+                    fontSize="11"
+                    fontWeight={isSelected ? "600" : "400"}
+                    fill={isSelected ? "#0047FF" : "#A3A3A3"}
+                    fontFamily="DM Sans, sans-serif"
+                    letterSpacing="0.02em"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => handleStrikeClick(strike)}
+                  >
+                    ${strike.toFixed(0)}
+                  </text>
+                )}
+              </g>
+            )
+          })
+        })()}
+
+        {/* Price area (gradient fill) */}
+        <path
+          d={areaPath}
+          fill="url(#priceGradient)"
+          opacity={0.3}
+        />
 
         {/* Price line */}
         <path
           d={linePath}
           fill="none"
           stroke="#0A0A0A"
-          strokeWidth={1.5}
+          strokeWidth={2}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
 
+        {/* Crosshair on hover */}
+        {hoveredPoint && (
+          <>
+            <line
+              x1={hoveredPoint.x}
+              y1={marginTop}
+              x2={hoveredPoint.x}
+              y2={height - marginBottom}
+              stroke="#0A0A0A"
+              strokeWidth={1}
+              strokeDasharray="2,2"
+              opacity={0.3}
+            />
+            <line
+              x1={marginLeft}
+              y1={hoveredPoint.y}
+              x2={marginLeft + historicalWidth}
+              y2={hoveredPoint.y}
+              stroke="#0A0A0A"
+              strokeWidth={1}
+              strokeDasharray="2,2"
+              opacity={0.3}
+            />
+          </>
+        )}
+
+        {/* Interactive price points */}
+        {linePathData.map((point, idx) => (
+          <g key={`price-point-${idx}`}>
+            {/* Invisible larger hit area */}
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r={12}
+              fill="transparent"
+              style={{ cursor: 'pointer' }}
+              onMouseEnter={() => setHoveredPoint(point)}
+              onMouseLeave={() => setHoveredPoint(null)}
+            />
+            {/* Visible dot on hover */}
+            {(hoveredPoint === point || idx === linePathData.length - 1) && (
+              <>
+                <circle
+                  cx={point.x}
+                  cy={point.y}
+                  r={4}
+                  fill="white"
+                  stroke="#0A0A0A"
+                  strokeWidth={2}
+                />
+                {hoveredPoint === point && (
+                  <circle
+                    cx={point.x}
+                    cy={point.y}
+                    r={6}
+                    fill="none"
+                    stroke="#0A0A0A"
+                    strokeWidth={1}
+                    opacity={0.3}
+                  />
+                )}
+              </>
+            )}
+          </g>
+        ))}
+
         {/* Current price line */}
         <line
           x1={marginLeft}
-          y1={priceScale(currentPrice)}
+          y1={priceToRowY(currentPrice)}
           x2={width - marginRight}
-          y2={priceScale(currentPrice)}
+          y2={priceToRowY(currentPrice)}
           stroke="#0047FF"
           strokeWidth={1}
           strokeDasharray="4,4"
@@ -501,18 +1048,98 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         />
 
         {/* Current price label */}
-        <text
-          x={marginLeft - 15}
-          y={priceScale(currentPrice) + 4}
-          textAnchor="end"
-          fontSize="11"
-          fontWeight="500"
-          fill="#0047FF"
-          fontFamily="DM Sans, sans-serif"
-          letterSpacing="0.02em"
-        >
-          ${currentPrice.toFixed(2)}
-        </text>
+        {(() => {
+          const priceText = `$${currentPrice.toFixed(2)}`
+          const padding = 6
+          const fontSize = 11
+          // Approximate text width (roughly 0.6 * fontSize per character for monospace)
+          const textWidth = priceText.length * fontSize * 0.55
+          const textHeight = fontSize
+          const boxWidth = textWidth + padding * 2
+          const boxHeight = textHeight + padding * 2
+          const centerX = marginLeft - 50
+
+          return (
+            <g>
+              <rect
+                x={centerX - boxWidth / 2}
+                y={priceToRowY(currentPrice) - boxHeight / 2}
+                width={boxWidth}
+                height={boxHeight}
+                fill="white"
+                stroke="#0047FF"
+                strokeWidth={0.5}
+                rx={2}
+              />
+              <text
+                x={centerX}
+                y={priceToRowY(currentPrice) + fontSize / 3}
+                textAnchor="middle"
+                fontSize={fontSize}
+                fontWeight="500"
+                fill="#0047FF"
+                fontFamily="DM Sans, sans-serif"
+                letterSpacing="0.02em"
+              >
+                {priceText}
+              </text>
+            </g>
+          )
+        })()}
+
+        {/* Cost basis line */}
+        {costBasis && costBasis !== currentPrice && (
+          <>
+            <line
+              x1={marginLeft}
+              y1={priceToRowY(costBasis)}
+              x2={width - marginRight}
+              y2={priceToRowY(costBasis)}
+              stroke="#10b981"
+              strokeWidth={1}
+              strokeDasharray="6,3"
+              opacity={0.8}
+            />
+            {(() => {
+              const basisText = `$${costBasis.toFixed(2)}`
+              const padding = 6
+              const fontSize = 11
+              // Approximate text width (roughly 0.55 * fontSize per character)
+              const textWidth = basisText.length * fontSize * 0.55
+              const textHeight = fontSize
+              const boxWidth = textWidth + padding * 2
+              const boxHeight = textHeight + padding * 2
+              const centerX = marginLeft - 50
+
+              return (
+                <g>
+                  <rect
+                    x={centerX - boxWidth / 2}
+                    y={priceToRowY(costBasis) - boxHeight / 2}
+                    width={boxWidth}
+                    height={boxHeight}
+                    fill="white"
+                    stroke="#10b981"
+                    strokeWidth={0.5}
+                    rx={2}
+                  />
+                  <text
+                    x={centerX}
+                    y={priceToRowY(costBasis) + fontSize / 3}
+                    textAnchor="middle"
+                    fontSize={fontSize}
+                    fontWeight="500"
+                    fill="#10b981"
+                    fontFamily="DM Sans, sans-serif"
+                    letterSpacing="0.02em"
+                  >
+                    {basisText}
+                  </text>
+                </g>
+              )
+            })()}
+          </>
+        )}
 
         {/* Divider */}
         <line
@@ -540,9 +1167,10 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             NO OPTIONS DATA
           </text>
         ) : (
-          optionsGrid.map((row, rowIdx) => {
+          visibleRows.map((row, visibleIdx) => {
+          const rowIdx = firstVisibleRow + visibleIdx
           const strike = strikes[rowIdx]
-          const y = priceScale(strike)
+          const y = marginTop + (rowIdx * cellHeight)  // Row-based positioning
           const isStrikeSelected = selectedStrikes.has(strike)
 
           return row.map((cell, colIdx) => {
@@ -556,49 +1184,55 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
             const isExpSelected = selectedExpirations.has(expDate.toISOString())
             const isHighlighted = isStrikeSelected || isExpSelected
 
-            // Calculate white-to-blue gradient color
-            // Low intensity = white (#FFFFFF), High intensity = accent blue (#0047FF)
-            const getHeatmapColor = (intensity) => {
-              if (intensity === 0) return '#FAFAFA'
-
-              // Interpolate between white (255,255,255) and accent blue (0,71,255)
-              const r = Math.round(255 - (255 * intensity))
-              const g = Math.round(255 - (184 * intensity))
-              const b = 255
-
-              return `rgb(${r}, ${g}, ${b})`
-            }
-
             const cellColor = isHighlighted ? "#0047FF" : getHeatmapColor(intensity)
             const cellOpacity = isHighlighted ? 0.2 : 1
 
+            const isHovered = hoveredCell?.contractSymbol === cell.contractSymbol
+
             return (
               <g
-                key={`cell-${rowIdx}-${colIdx}`}
+                key={cell.contractSymbol}
                 onClick={() => handleCellClick(cell)}
+                onMouseEnter={() => handleCellHover(cell)}
+                onMouseLeave={handleCellLeave}
                 style={{ cursor: 'pointer' }}
               >
                 <rect
                   x={x + 2}
-                  y={y - cellHeight / 2 + 2}
+                  y={y + 2}
                   width={cellWidth - 4}
                   height={cellHeight - 4}
                   fill={cellColor}
-                  opacity={cellOpacity}
+                  opacity={isHovered ? 0.7 : cellOpacity}
                   rx={0}
                 />
+                {isHovered && (
+                  <rect
+                    x={x + 2}
+                    y={y + 2}
+                    width={cellWidth - 4}
+                    height={cellHeight - 4}
+                    fill="none"
+                    stroke="#0A0A0A"
+                    strokeWidth={2}
+                    rx={0}
+                  />
+                )}
                 <text
                   x={x + cellWidth / 2}
-                  y={y + 4}
+                  y={y + cellHeight / 2 + 4}
                   textAnchor="middle"
                   fontSize="11"
-                  fontWeight={isHighlighted ? "600" : "500"}
+                  fontWeight={isHighlighted || isHovered ? "600" : "500"}
                   fill={intensity > 0.5 ? "#FFFFFF" : (isHighlighted ? "#0047FF" : "#0A0A0A")}
                   fontFamily="DM Sans, sans-serif"
                   letterSpacing="0.01em"
+                  style={{ pointerEvents: 'none' }}
                 >
                   {heatmapMode === 'pc'
                     ? (cell.pcRatioVolume ? cell.pcRatioVolume.toFixed(2) : '0.00')
+                    : heatmapMode === 'delta'
+                    ? (cell.delta ? cell.delta.toFixed(3) : '0.000')
                     : `$${typeof cell.price === 'number' ? cell.price.toFixed(2) : cell.price}`
                   }
                 </text>
@@ -677,6 +1311,49 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           EXPIRATIONS
         </text>
 
+        {/* Tooltip rendered as SVG - placed last for z-index priority */}
+        {hoveredPoint && (
+          <g style={{ pointerEvents: 'none' }}>
+            {/* Tooltip background */}
+            <rect
+              x={hoveredPoint.x - 60}
+              y={hoveredPoint.y - 60}
+              width={120}
+              height={50}
+              fill="white"
+              stroke="#E8E8E8"
+              strokeWidth={1}
+              filter="url(#shadow)"
+              rx={2}
+            />
+            {/* Tooltip date */}
+            <text
+              x={hoveredPoint.x}
+              y={hoveredPoint.y - 40}
+              textAnchor="middle"
+              fontSize="9"
+              fontWeight="600"
+              fill="#A3A3A3"
+              fontFamily="DM Sans, sans-serif"
+              letterSpacing="0.15em"
+            >
+              {hoveredPoint.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()}
+            </text>
+            {/* Tooltip price */}
+            <text
+              x={hoveredPoint.x}
+              y={hoveredPoint.y - 20}
+              textAnchor="middle"
+              fontSize="16"
+              fontWeight="500"
+              fill="#0A0A0A"
+              fontFamily="Manrope, sans-serif"
+            >
+              ${hoveredPoint.price.toFixed(2)}
+            </text>
+          </g>
+        )}
+
         </svg>
       </div>
 
@@ -689,11 +1366,19 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-px" style={{ background: 'var(--color-accent)', borderTop: '1px dashed var(--color-accent)' }} />
+          <div className="w-8 h-px" style={{ background: '#0047FF', borderTop: '1px dashed #0047FF' }} />
           <span className="text-[10px] uppercase tracking-[0.15em] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
             Current
           </span>
         </div>
+        {costBasis && costBasis !== currentPrice && (
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-px" style={{ background: '#10b981', borderTop: '1px dashed #10b981' }} />
+            <span className="text-[10px] uppercase tracking-[0.15em] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+              Cost Basis
+            </span>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <div className="w-6 h-3" style={{ background: 'var(--color-text-primary)', opacity: 0.08 }} />
           <span className="text-[10px] uppercase tracking-[0.15em] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
@@ -702,6 +1387,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         </div>
       </div>
       </div>
-    </div>
+      </div>
+    </>
   )
 }

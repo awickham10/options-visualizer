@@ -84,7 +84,7 @@ app.get('/api/quote/:symbol', async (req, res) => {
 });
 
 // Helper function to fetch both puts and calls
-async function fetchOptionsData(symbol, expirationDateGte, expirationDateLte) {
+async function fetchOptionsData(symbol, expirationDateGte, expirationDateLte, minimal = false) {
   const apiUrl = `https://data.alpaca.markets/v1beta1/options/snapshots/${symbol}`;
 
   // Fetch calls
@@ -136,13 +136,92 @@ async function fetchOptionsData(symbol, expirationDateGte, expirationDateLte) {
     ...(putData.snapshots || {})
   };
 
+  // If minimal, only return essential grid data (strip greeks and extra fields)
+  if (minimal) {
+    const minimalData = {};
+    Object.entries(allSnapshots).forEach(([contractSymbol, optData]) => {
+      const latestQuote = optData.latestQuote;
+      const latestTrade = optData.latestTrade;
+      const greeks = optData.greeks;
+
+      minimalData[contractSymbol] = {
+        latestQuote: latestQuote ? {
+          bp: latestQuote.bp || 0,
+          ap: latestQuote.ap || 0,
+          bs: latestQuote.bs || 0,
+          as: latestQuote.as || 0
+        } : null,
+        latestTrade: latestTrade ? {
+          p: latestTrade.p || 0,
+          s: latestTrade.s || 0
+        } : null,
+        openInterest: optData.openInterest || 0,
+        impliedVolatility: optData.impliedVolatility || 0,
+        greeks: greeks ? {
+          delta: greeks.delta || 0,
+          gamma: greeks.gamma || 0,
+          theta: greeks.theta || 0,
+          vega: greeks.vega || 0
+        } : null
+      };
+    });
+    return minimalData;
+  }
+
   return allSnapshots;
 }
+
+// Get single option contract details
+app.get('/api/option/:contractSymbol', async (req, res) => {
+  try {
+    const { contractSymbol } = req.params;
+
+    // Parse contract symbol to get underlying symbol and expiration
+    // Format: AAPL250117C00150000 (symbol + YYMMDD + C/P + strike)
+    const match = contractSymbol.match(/^([A-Z]+)(\d{6})([CP])(\d{8})$/);
+    if (!match) {
+      return res.status(400).json({ success: false, error: 'Invalid contract symbol' });
+    }
+
+    const [, symbol, dateStr, optType, strikeStr] = match;
+
+    // Parse expiration date
+    const year = 2000 + parseInt(dateStr.substring(0, 2));
+    const month = parseInt(dateStr.substring(2, 4));
+    const day = parseInt(dateStr.substring(4, 6));
+
+    // Calculate date range (fetch options around this expiration)
+    const expDate = new Date(year, month - 1, day);
+    const oneDayBefore = new Date(expDate);
+    oneDayBefore.setDate(expDate.getDate() - 1);
+    const oneDayAfter = new Date(expDate);
+    oneDayAfter.setDate(expDate.getDate() + 1);
+
+    const expirationDateGte = oneDayBefore.toISOString().split('T')[0];
+    const expirationDateLte = oneDayAfter.toISOString().split('T')[0];
+
+    // Fetch options data (not minimal - we want full details)
+    const allSnapshots = await fetchOptionsData(symbol, expirationDateGte, expirationDateLte, false);
+
+    // Find the specific contract
+    const contractData = allSnapshots[contractSymbol];
+
+    if (!contractData) {
+      return res.status(404).json({ success: false, error: 'Contract not found' });
+    }
+
+    res.json({ success: true, data: contractData });
+  } catch (error) {
+    console.error('Error fetching option contract:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // Get options chain/snapshots for a symbol
 app.get('/api/options/:symbol', async (req, res) => {
   try {
     const { symbol } = req.params;
+    const { minimal = 'false' } = req.query;
 
     // Calculate date range - start from 2 weeks out to avoid near-term expiry
     // and go out 6 months for longer-term options
@@ -156,7 +235,7 @@ app.get('/api/options/:symbol', async (req, res) => {
     const expirationDateGte = twoWeeksFromNow.toISOString().split('T')[0];
     const expirationDateLte = sixMonthsLater.toISOString().split('T')[0];
 
-    const allSnapshots = await fetchOptionsData(symbol, expirationDateGte, expirationDateLte);
+    const allSnapshots = await fetchOptionsData(symbol, expirationDateGte, expirationDateLte, minimal === 'true');
 
     res.json({ success: true, data: allSnapshots });
   } catch (error) {
@@ -294,6 +373,7 @@ wss.on('connection', (ws) => {
         }
 
         // Fetch and send initial options contracts (2 weeks to 6 months out)
+        // Use minimal=true to only send essential grid data
         try {
           const today = new Date();
           const twoWeeksFromNow = new Date(today);
@@ -304,12 +384,12 @@ wss.on('connection', (ws) => {
           const expirationDateGte = twoWeeksFromNow.toISOString().split('T')[0];
           const expirationDateLte = sixMonthsLater.toISOString().split('T')[0];
 
-          const allSnapshots = await fetchOptionsData(symbol, expirationDateGte, expirationDateLte);
+          const minimalSnapshots = await fetchOptionsData(symbol, expirationDateGte, expirationDateLte, true);
 
-          if (allSnapshots && ws.readyState === WebSocket.OPEN) {
+          if (minimalSnapshots && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
               type: 'options_snapshot',
-              data: allSnapshots
+              data: minimalSnapshots
             }));
           }
         } catch (error) {

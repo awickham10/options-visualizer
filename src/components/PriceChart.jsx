@@ -7,10 +7,11 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  ResponsiveContainer
+  ResponsiveContainer,
+  ReferenceLine
 } from 'recharts'
 
-export function PriceChart({ data, symbol }) {
+export function PriceChart({ data, symbol, costBasis, currentPrice }) {
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-96 text-gray-500">
@@ -51,6 +52,36 @@ export function PriceChart({ data, symbol }) {
             strokeWidth={2}
             dot={false}
           />
+          {currentPrice && (
+            <ReferenceLine
+              y={currentPrice}
+              stroke="#ef4444"
+              strokeWidth={2}
+              strokeDasharray="3 3"
+              label={{
+                value: `Current: $${currentPrice.toFixed(2)}`,
+                position: 'right',
+                fill: '#ef4444',
+                fontSize: 12,
+                fontWeight: 600
+              }}
+            />
+          )}
+          {costBasis && costBasis !== currentPrice && (
+            <ReferenceLine
+              y={costBasis}
+              stroke="#10b981"
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              label={{
+                value: `Cost Basis: $${costBasis.toFixed(2)}`,
+                position: 'right',
+                fill: '#10b981',
+                fontSize: 12,
+                fontWeight: 600
+              }}
+            />
+          )}
         </LineChart>
       </ResponsiveContainer>
     </div>
