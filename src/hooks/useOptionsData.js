@@ -1,0 +1,309 @@
+import { useMemo } from 'react'
+
+/**
+ * Custom hook to process and structure options chain data
+ * Extracts business logic from ModernOptionsChart component
+ *
+ * @param {Array} data - Historical stock price data
+ * @param {Object} optionsData - Raw options data from API
+ * @param {string} optionType - Type of option to display ('call' or 'put')
+ * @returns {Object} Processed options data including grid, strikes, expirations, and price info
+ */
+export function useOptionsData(data, optionsData, optionType) {
+  return useMemo(() => {
+    if (!data || data.length === 0) return null
+
+    const currentPrice = data[data.length - 1].close
+
+    const historical = data.map(bar => ({
+      date: new Date(bar.time),
+      price: bar.close
+    }))
+
+    const prices = historical.map(h => h.price)
+    const minPrice = Math.min(...prices)
+    const maxPrice = Math.max(...prices)
+    const priceRange = maxPrice - minPrice
+
+    let extendedMin = minPrice - priceRange * 0.15
+    let extendedMax = maxPrice + priceRange * 0.15
+
+    // Process real options data (API returns object with contract symbols as keys)
+    if (optionsData && typeof optionsData === 'object' && Object.keys(optionsData).length > 0) {
+      // Group options by expiration date and strike price
+      const optionsByExp = {}
+      const allStrikes = new Set()
+      const allExpirations = new Set()
+
+      // First pass: collect ALL expirations and strikes
+      Object.entries(optionsData).forEach(([contractSymbol, optData]) => {
+        const match = contractSymbol.match(/^([A-Z]+)(\d{6})([CP])(\d{8})$/)
+        if (!match) return
+
+        const [, , dateStr, optionType, strikeStr] = match
+
+        // Parse expiration date (YYMMDD)
+        const year = 2000 + parseInt(dateStr.substring(0, 2))
+        const month = parseInt(dateStr.substring(2, 4))
+        const day = parseInt(dateStr.substring(4, 6))
+        const expDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+
+        // Always collect expiration dates, regardless of strike
+        allExpirations.add(expDate)
+
+        // Parse strike price (8 digits, last 3 are decimals)
+        const strike = parseInt(strikeStr) / 1000
+        allStrikes.add(strike)
+      })
+
+      // Second pass: populate options data and track puts/calls separately
+      const putCallData = {} // Track puts and calls separately for P/C ratio
+      let putCount = 0
+      let callCount = 0
+
+      Object.entries(optionsData).forEach(([contractSymbol, optData]) => {
+        const match = contractSymbol.match(/^([A-Z]+)(\d{6})([CP])(\d{8})$/)
+        if (!match) return
+
+        const [, , dateStr, optionType, strikeStr] = match
+
+        const year = 2000 + parseInt(dateStr.substring(0, 2))
+        const month = parseInt(dateStr.substring(2, 4))
+        const day = parseInt(dateStr.substring(4, 6))
+        const expDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+
+        const strike = parseInt(strikeStr) / 1000
+        const latestQuote = optData.latestQuote
+        const latestTrade = optData.latestTrade
+
+        if (!latestQuote) return
+
+        if (!optionsByExp[expDate]) {
+          optionsByExp[expDate] = {}
+        }
+
+        // Track put/call data for ratio calculation
+        const key = `${expDate}-${strike}`
+        if (!putCallData[key]) {
+          putCallData[key] = { putVolume: 0, callVolume: 0, putOI: 0, callOI: 0 }
+        }
+
+        const volume = latestTrade?.s || 0
+        const oi = optData.openInterest || 0
+
+        // Debug: Log first few entries to see what data we have
+        if ((putCount + callCount) < 5) {
+          console.log(`Sample option ${contractSymbol}:`, {
+            type: optionType,
+            volume,
+            oi,
+            latestTrade: latestTrade ? { p: latestTrade.p, s: latestTrade.s, t: latestTrade.t } : null
+          })
+        }
+
+        if (optionType === 'P') {
+          putCallData[key].putVolume = volume
+          putCallData[key].putOI = oi
+          putCount++
+        } else if (optionType === 'C') {
+          putCallData[key].callVolume = volume
+          putCallData[key].callOI = oi
+          callCount++
+        }
+
+        // Store both calls and puts separately
+        if (!optionsByExp[expDate][strike]) {
+          optionsByExp[expDate][strike] = {}
+        }
+
+        const optionKey = optionType === 'C' ? 'call' : 'put'
+        const greeks = optData.greeks || {}
+        optionsByExp[expDate][strike][optionKey] = {
+          strike,
+          expDate: new Date(expDate),
+          contractSymbol,
+          optionType,
+          price: latestQuote?.ap || latestQuote?.bp || 0,
+          bid: latestQuote?.bp || 0,
+          ask: latestQuote?.ap || 0,
+          bidSize: latestQuote?.bs || 0,
+          askSize: latestQuote?.as || 0,
+          lastPrice: latestTrade?.p || 0,
+          volume: latestTrade?.s || 0,
+          impliedVolatility: optData.impliedVolatility || 0,
+          openInterest: optData.openInterest || 0,
+          isITM: optionType === 'C' ? strike < currentPrice : strike > currentPrice,
+          // Greeks from API
+          delta: greeks.delta || 0,
+          gamma: greeks.gamma || 0,
+          theta: greeks.theta || 0,
+          vega: greeks.vega || 0,
+          currentPrice // Add current price for calculations
+        }
+      })
+
+      console.log(`Options data summary: ${putCount} puts, ${callCount} calls`)
+
+      // Calculate P/C ratios and add to options data
+      let debugCount = 0
+      let totalEntries = 0
+      let entriesWithData = 0
+      let entriesWithBothPutAndCall = 0
+
+      // First, let's log a sample of putCallData to understand the structure
+      const sampleKeys = Object.keys(putCallData).slice(0, 3)
+      console.log('Sample putCallData entries:', sampleKeys.map(k => ({
+        key: k,
+        data: putCallData[k]
+      })))
+
+      Object.entries(putCallData).forEach(([key, data]) => {
+        // Key format is "YYYY-MM-DD-strike", so split on last hyphen
+        const lastHyphenIndex = key.lastIndexOf('-')
+        const expDateStr = key.substring(0, lastHyphenIndex)
+        const strikeStr = key.substring(lastHyphenIndex + 1)
+        const strike = parseFloat(strikeStr)
+        totalEntries++
+
+        const hasPutData = data.putVolume > 0 || data.putOI > 0
+        const hasCallData = data.callVolume > 0 || data.callOI > 0
+
+        if (hasPutData || hasCallData) {
+          entriesWithData++
+        }
+
+        if (hasPutData && hasCallData) {
+          entriesWithBothPutAndCall++
+
+          // Log first 10 entries that have BOTH put and call data
+          if (debugCount < 10) {
+            console.log(`P/C Data for ${key}:`, {
+              putVolume: data.putVolume,
+              callVolume: data.callVolume,
+              putOI: data.putOI,
+              callOI: data.callOI
+            })
+            debugCount++
+          }
+        }
+
+        if (optionsByExp[expDateStr]?.[strike]) {
+          // Calculate P/C ratio based on volume (put volume / call volume)
+          const pcRatioVolume = data.callVolume > 0
+            ? data.putVolume / data.callVolume
+            : (data.putVolume > 0 ? 2 : 0) // If only puts exist, show high ratio
+
+          // Calculate P/C ratio based on open interest
+          const pcRatioOI = data.callOI > 0
+            ? data.putOI / data.callOI
+            : (data.putOI > 0 ? 2 : 0)
+
+          // Add P/C ratios to both call and put if they exist
+          if (optionsByExp[expDateStr][strike].call) {
+            optionsByExp[expDateStr][strike].call.pcRatioVolume = pcRatioVolume
+            optionsByExp[expDateStr][strike].call.pcRatioOI = pcRatioOI
+          }
+          if (optionsByExp[expDateStr][strike].put) {
+            optionsByExp[expDateStr][strike].put.pcRatioVolume = pcRatioVolume
+            optionsByExp[expDateStr][strike].put.pcRatioOI = pcRatioOI
+          }
+        }
+      })
+
+      console.log(`P/C Summary: ${entriesWithData} of ${totalEntries} strike/exp combinations have data`)
+      console.log(`  - ${entriesWithBothPutAndCall} have BOTH put and call data`)
+
+      // Get sorted unique expirations (show all available)
+      const expirations = Array.from(allExpirations)
+        .sort()
+        .map(d => new Date(d))
+
+      // Get sorted unique strikes - use ALL strikes without filtering
+      // Sort descending so high prices are at the top
+      let strikes = Array.from(allStrikes).sort((a, b) => b - a)
+
+      // Filter out strikes where all contracts across all expirations have zero bid/ask
+      // This trims the chart vertically to show only actionable price ranges
+      strikes = strikes.filter(strike => {
+        // Check if ANY expiration for this strike has non-zero bid/ask
+        return Array.from(allExpirations).some(expDate => {
+          const optionData = optionsByExp[expDate]?.[strike]
+          if (!optionData) return false
+
+          // Check both call and put for non-zero bid/ask
+          const callData = optionData.call
+          const putData = optionData.put
+
+          const callHasValue = callData && (callData.bid > 0 || callData.ask > 0)
+          const putHasValue = putData && (putData.bid > 0 || putData.ask > 0)
+
+          return callHasValue || putHasValue
+        })
+      })
+
+      // Set price range to exactly match strike range so chart aligns properly
+      // strikes are sorted descending, so strikes[0] is highest, strikes[last] is lowest
+      if (strikes.length > 0) {
+        extendedMin = strikes[strikes.length - 1]  // lowest strike
+        extendedMax = strikes[0]  // highest strike
+      }
+
+      // Build options grid aligned with strikes and expirations
+      // Filter by selected option type (call or put)
+      const optionsGrid = strikes.map(strike => {
+        return expirations.map(expDate => {
+          const expKey = expDate.toISOString().split('T')[0]
+          const optionData = optionsByExp[expKey]?.[strike]
+
+          // Extract the selected option type (call or put)
+          if (optionData) {
+            const option = optionData[optionType]
+            if (option) {
+              return option
+            }
+          }
+
+          // Return null if no data
+          return null
+        })
+      })
+
+      // Debug: Log first few cells with P/C ratio data
+      let cellsWithPC = 0
+      for (let i = 0; i < Math.min(5, optionsGrid.length); i++) {
+        for (let j = 0; j < Math.min(5, optionsGrid[i].length); j++) {
+          const cell = optionsGrid[i][j]
+          if (cell && cell.pcRatioVolume !== undefined) {
+            console.log(`Cell [${i},${j}] strike=${strikes[i]} has pcRatioVolume:`, cell.pcRatioVolume)
+            cellsWithPC++
+            if (cellsWithPC >= 5) break
+          }
+        }
+        if (cellsWithPC >= 5) break
+      }
+      console.log(`Total cells with pcRatioVolume in grid:`, optionsGrid.flat().filter(c => c && c.pcRatioVolume !== undefined).length)
+
+      return {
+        historical,
+        strikes,
+        expirations,
+        optionsGrid,
+        currentPrice,
+        minPrice: extendedMin,
+        maxPrice: extendedMax
+      }
+    }
+
+    // No options data available - return null to show message
+    return {
+      historical,
+      strikes: [],
+      expirations: [],
+      optionsGrid: [],
+      currentPrice,
+      minPrice: extendedMin,
+      maxPrice: extendedMax,
+      noOptionsData: true
+    }
+  }, [data, optionsData, optionType])
+}
