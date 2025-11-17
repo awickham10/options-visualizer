@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { parseContractSymbol, isITM } from '../lib/optionsUtils'
 import { formatISODate } from '../lib/formatters'
+import { logger } from '../lib/logger'
 
 /**
  * Custom hook to process and structure options chain data
@@ -83,7 +84,7 @@ export function useOptionsData(data, optionsData, optionType) {
 
         // Debug: Log first few entries to see what data we have
         if ((putCount + callCount) < 5) {
-          console.log(`Sample option ${contractSymbol}:`, {
+          logger.debug(`Sample option ${contractSymbol}:`, {
             type: optionType,
             volume,
             oi,
@@ -132,7 +133,7 @@ export function useOptionsData(data, optionsData, optionType) {
         }
       })
 
-      console.log(`Options data summary: ${putCount} puts, ${callCount} calls`)
+      logger.debug(`Options data summary: ${putCount} puts, ${callCount} calls`)
 
       // Calculate P/C ratios and add to options data
       let debugCount = 0
@@ -142,7 +143,7 @@ export function useOptionsData(data, optionsData, optionType) {
 
       // First, let's log a sample of putCallData to understand the structure
       const sampleKeys = Object.keys(putCallData).slice(0, 3)
-      console.log('Sample putCallData entries:', sampleKeys.map(k => ({
+      logger.debug('Sample putCallData entries:', sampleKeys.map(k => ({
         key: k,
         data: putCallData[k]
       })))
@@ -167,7 +168,7 @@ export function useOptionsData(data, optionsData, optionType) {
 
           // Log first 10 entries that have BOTH put and call data
           if (debugCount < 10) {
-            console.log(`P/C Data for ${key}:`, {
+            logger.debug(`P/C Data for ${key}:`, {
               putVolume: data.putVolume,
               callVolume: data.callVolume,
               putOI: data.putOI,
@@ -200,8 +201,8 @@ export function useOptionsData(data, optionsData, optionType) {
         }
       })
 
-      console.log(`P/C Summary: ${entriesWithData} of ${totalEntries} strike/exp combinations have data`)
-      console.log(`  - ${entriesWithBothPutAndCall} have BOTH put and call data`)
+      logger.debug(`P/C Summary: ${entriesWithData} of ${totalEntries} strike/exp combinations have data`)
+      logger.debug(`  - ${entriesWithBothPutAndCall} have BOTH put and call data`)
 
       // Get sorted unique expirations (show all available)
       const expirations = Array.from(allExpirations)
@@ -264,14 +265,14 @@ export function useOptionsData(data, optionsData, optionType) {
         for (let j = 0; j < Math.min(5, optionsGrid[i].length); j++) {
           const cell = optionsGrid[i][j]
           if (cell && cell.pcRatioVolume !== undefined) {
-            console.log(`Cell [${i},${j}] strike=${strikes[i]} has pcRatioVolume:`, cell.pcRatioVolume)
+            logger.debug(`Cell [${i},${j}] strike=${strikes[i]} has pcRatioVolume:`, cell.pcRatioVolume)
             cellsWithPC++
             if (cellsWithPC >= 5) break
           }
         }
         if (cellsWithPC >= 5) break
       }
-      console.log(`Total cells with pcRatioVolume in grid:`, optionsGrid.flat().filter(c => c && c.pcRatioVolume !== undefined).length)
+      logger.debug(`Total cells with pcRatioVolume in grid:`, optionsGrid.flat().filter(c => c && c.pcRatioVolume !== undefined).length)
 
       return {
         historical,
