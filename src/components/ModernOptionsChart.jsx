@@ -149,8 +149,14 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
     return priceToRowYUtil(price, strikes, marginTop, FIXED_CELL_HEIGHT)
   }
 
-  // Sample historical data for rendering
+  // Sample historical data for rendering - but ALWAYS include the last point
   const sampledHistorical = historical.filter((_, idx) => idx % 2 === 0)
+
+  // Ensure the very last point is included for accurate line rendering
+  const lastHistoricalPoint = historical[historical.length - 1]
+  if (!sampledHistorical.find(p => p.date.getTime() === lastHistoricalPoint.date.getTime())) {
+    sampledHistorical.push(lastHistoricalPoint)
+  }
 
   // Create full path data for the line chart
   const linePathData = sampledHistorical.map((point, idx) => {
@@ -867,24 +873,55 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
         }))}
 
         {/* X-axis labels - Historical */}
-        {sampledHistorical.filter((_, idx) => idx % 8 === 0).map((point, idx) => {
-          const x = marginLeft + (historical.indexOf(point) / (historical.length - 1)) * historicalWidth
-          return (
-            <text
-              key={`hist-label-${idx}`}
-              x={x}
-              y={height - marginBottom + 30}
-              textAnchor="middle"
-              fontSize="10"
-              fill="#A3A3A3"
-              fontWeight="400"
-              fontFamily="DM Sans, sans-serif"
-              letterSpacing="0.05em"
-            >
-              {formatDateLabel(point.date)}
-            </text>
-          )
-        })}
+        {(() => {
+          // Always show first and last dates, plus every 8th date in between
+          const labelPoints = sampledHistorical.filter((_, idx) => idx % 8 === 0)
+
+          // IMPORTANT: Use the actual last point from historical, not sampledHistorical
+          const actualLastPoint = historical[historical.length - 1]
+
+          // Add last point if not already included
+          if (!labelPoints.find(p => p.date.getTime() === actualLastPoint.date.getTime())) {
+            labelPoints.push(actualLastPoint)
+          }
+
+          // Remove labels that are too close to the last label to prevent overlap
+          const MIN_LABEL_SPACING = 50 // pixels
+          const filteredLabels = []
+
+          for (let i = 0; i < labelPoints.length; i++) {
+            const currentX = marginLeft + (historical.indexOf(labelPoints[i]) / (historical.length - 1)) * historicalWidth
+            const lastX = marginLeft + (historical.indexOf(actualLastPoint) / (historical.length - 1)) * historicalWidth
+
+            // Always include first and last
+            if (i === 0 || labelPoints[i] === actualLastPoint) {
+              filteredLabels.push(labelPoints[i])
+            }
+            // Include middle labels only if they're far enough from the last label
+            else if (Math.abs(currentX - lastX) > MIN_LABEL_SPACING) {
+              filteredLabels.push(labelPoints[i])
+            }
+          }
+
+          return filteredLabels.map((point, idx) => {
+            const x = marginLeft + (historical.indexOf(point) / (historical.length - 1)) * historicalWidth
+            return (
+              <text
+                key={`hist-label-${idx}`}
+                x={x}
+                y={height - marginBottom + 30}
+                textAnchor="middle"
+                fontSize="10"
+                fill="#A3A3A3"
+                fontWeight="400"
+                fontFamily="DM Sans, sans-serif"
+                letterSpacing="0.05em"
+              >
+                {formatDateLabel(point.date)}
+              </text>
+            )
+          })
+        })()}
 
         {/* X-axis labels - Options */}
         {expirations.map((expDate, idx) => {

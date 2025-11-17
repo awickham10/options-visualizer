@@ -131,7 +131,7 @@ async function handleSubscribe(ws, symbol, previousSymbol) {
     // Unsubscribe from previous symbol if any
     if (previousSymbol) {
       try {
-        await alpacaStream.unsubscribe(['bars'], [previousSymbol]);
+        await alpacaStream.unsubscribeFromBars([previousSymbol]);
         logger.info({ symbol: previousSymbol }, 'Unsubscribed from symbol');
       } catch (e) {
         logger.warn({ error: e.message, symbol: previousSymbol }, 'Error unsubscribing');
@@ -158,7 +158,7 @@ async function handleSubscribe(ws, symbol, previousSymbol) {
 
     // Subscribe to bars for this symbol
     try {
-      await alpacaStream.subscribe(['bars'], [symbol]);
+      await alpacaStream.subscribeForBars([symbol]);
       logger.info({ symbol }, 'Subscribed to bars');
     } catch (error) {
       logger.error({ error: error.message, symbol }, 'Failed to subscribe');
@@ -202,7 +202,7 @@ async function handleSubscribe(ws, symbol, previousSymbol) {
 async function handleUnsubscribe(symbol) {
   if (alpacaStream && symbol && streamConnected) {
     try {
-      await alpacaStream.unsubscribe(['bars'], [symbol]);
+      await alpacaStream.unsubscribeFromBars([symbol]);
       logger.info({ symbol }, 'Unsubscribed from symbol');
     } catch (e) {
       logger.warn({ error: e.message, symbol }, 'Error cleaning up subscription');

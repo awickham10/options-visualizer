@@ -18,7 +18,11 @@ async function fetchBars(symbol, options = {}) {
 
   // Request last 150 days with descending sort to get most recent bars
   const startDate = start || new Date(Date.now() - 150 * 24 * 60 * 60 * 1000).toISOString();
-  const endDate = end || new Date().toISOString();
+  // Set end date to 2 days from now to ensure we capture today's complete data
+  // Alpaca timestamps daily bars at market open, so we need to go past today
+  const twoDaysFromNow = new Date();
+  twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
+  const endDate = end || twoDaysFromNow.toISOString();
 
   const bars = await alpaca.getBarsV2(symbol, {
     start: startDate,
@@ -43,6 +47,7 @@ async function fetchBars(symbol, options = {}) {
 
   // Reverse to get chronological order (oldest to newest)
   data.reverse();
+
 
   return { success: true, data, timestamp: new Date().toISOString() };
 }
