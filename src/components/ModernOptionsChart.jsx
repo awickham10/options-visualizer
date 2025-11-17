@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { HeatmapToggle } from './HeatmapToggle'
 import { CallPutToggle } from './CallPutToggle'
 import { useOptionsData } from '../hooks/useOptionsData'
+import { priceToRowY as priceToRowYUtil, percentile, calculateIntensityRanges, getHeatmapColor } from '../lib/chartUtils'
+import { formatPrice, formatDateLabel } from '../lib/formatters'
 
 export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated, onCellSelect, costBasis, onCostBasisChange }) {
   const [selectedExpirations, setSelectedExpirations] = useState(new Set())
@@ -141,43 +143,9 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const optionsWidth = calculatedOptionsWidth
 
   // Convert price to row-based Y position with interpolation for accurate alignment
-  // This is THE SINGLE SOURCE OF TRUTH for all price-to-Y conversions
+  // Uses utility function from chartUtils.js
   const priceToRowY = (price) => {
-    if (strikes.length === 0) return marginTop
-
-    // Strikes are sorted descending (highest to lowest)
-    // Find the two strikes that bound this price
-    let upperIdx = -1
-    let lowerIdx = -1
-
-    for (let i = 0; i < strikes.length; i++) {
-      if (strikes[i] >= price) {
-        upperIdx = i
-      } else {
-        lowerIdx = i
-        break
-      }
-    }
-
-    // Handle edge cases
-    if (upperIdx === -1) {
-      // Price is above all strikes
-      return marginTop + (FIXED_CELL_HEIGHT / 2)
-    }
-    if (lowerIdx === -1) {
-      // Price is below all strikes
-      return marginTop + ((strikes.length - 1) * FIXED_CELL_HEIGHT) + (FIXED_CELL_HEIGHT / 2)
-    }
-
-    // Interpolate between the two strikes
-    const upperStrike = strikes[upperIdx]
-    const lowerStrike = strikes[lowerIdx]
-    const ratio = (upperStrike - price) / (upperStrike - lowerStrike)
-
-    const upperY = marginTop + (upperIdx * FIXED_CELL_HEIGHT) + (FIXED_CELL_HEIGHT / 2)
-    const lowerY = marginTop + (lowerIdx * FIXED_CELL_HEIGHT) + (FIXED_CELL_HEIGHT / 2)
-
-    return upperY + ratio * (lowerY - upperY)
+    return priceToRowYUtil(price, strikes, marginTop, FIXED_CELL_HEIGHT)
   }
 
   // Sample historical data for rendering
@@ -209,54 +177,12 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const maxVolume = Math.max(...historical.map(h => h.volume || 0), 1)
   const volumeY = height - marginBottom + 10 // Position below the main chart
 
-  // Helper function to calculate percentile
-  const percentile = (arr, p) => {
-    if (arr.length === 0) return 0
-    const sorted = [...arr].sort((a, b) => a - b)
-    const index = (p / 100) * (sorted.length - 1)
-    const lower = Math.floor(index)
-    const upper = Math.ceil(index)
-    const weight = index % 1
-
-    if (lower === upper) return sorted[lower]
-    return sorted[lower] * (1 - weight) + sorted[upper] * weight
-  }
-
   // Pre-calculate intensity ranges once per heatmap mode change
+  // Uses utility function from chartUtils.js
   const intensityRanges = useMemo(() => {
     const validCells = optionsGrid.flat().filter(c => c)
-
-    const ranges = {}
-    const modes = ['volume', 'iv', 'oi', 'pc', 'delta']
-
-    modes.forEach(mode => {
-      let values = []
-      switch (mode) {
-        case 'volume':
-          values = validCells.map(c => c.volume || 0)
-          break
-        case 'iv':
-          values = validCells.map(c => c.impliedVolatility || 0)
-          break
-        case 'oi':
-          values = validCells.map(c => c.openInterest || 0)
-          break
-        case 'pc':
-          values = validCells.map(c => c.pcRatioVolume || 0)
-          break
-        case 'delta':
-          values = validCells.map(c => Math.abs(c.delta || 0))
-          break
-      }
-
-      ranges[mode] = {
-        min: percentile(values, 5),
-        max: percentile(values, 95) || (mode === 'iv' || mode === 'pc' || mode === 'delta' ? 0.01 : 1)
-      }
-    })
-
-    return ranges
-  }, [optionsGrid, heatmapMode])
+    return calculateIntensityRanges(validCells, ['volume', 'iv', 'oi', 'pc', 'delta'])
+  }, [optionsGrid])
 
   // Optimized intensity calculation using pre-calculated ranges
   const calculateIntensity = (cell) => {
@@ -289,15 +215,6 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
     if (range.max === range.min) return 0
     const intensity = (value - range.min) / (range.max - range.min)
     return Math.max(0, Math.min(intensity, 1))  // Clamp to [0, 1]
-  }
-
-  // Move color calculation outside render loop
-  const getHeatmapColor = (intensity) => {
-    if (intensity === 0) return '#FAFAFA'
-    const r = Math.round(255 - (255 * intensity))
-    const g = Math.round(255 - (184 * intensity))
-    const b = 255
-    return `rgb(${r}, ${g}, ${b})`
   }
 
   // Virtualization: Only render visible rows + buffer
@@ -349,7 +266,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                     fontFamily: 'Manrope, sans-serif',
                     fontWeight: 300
                   }}>
-                    ${currentPrice.toFixed(2)}
+                    {formatPrice(currentPrice)}
                 </div>
               </div>
 
@@ -963,7 +880,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
               fontFamily="DM Sans, sans-serif"
               letterSpacing="0.05em"
             >
-              {point.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}
+              {formatDateLabel(point.date)}
             </text>
           )
         })}
@@ -986,7 +903,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
               style={{ cursor: 'pointer' }}
               onClick={() => handleExpirationClick(expDate)}
             >
-              {expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}
+              {formatDateLabel(expDate)}
             </text>
           )
         })}
@@ -1044,7 +961,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
               fontFamily="DM Sans, sans-serif"
               letterSpacing="0.15em"
             >
-              {hoveredPoint.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()}
+              {formatDateLabel(hoveredPoint.date)}
             </text>
             {/* Tooltip price */}
             <text
@@ -1056,7 +973,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
               fill="#0A0A0A"
               fontFamily="Manrope, sans-serif"
             >
-              ${hoveredPoint.price.toFixed(2)}
+              {formatPrice(hoveredPoint.price)}
             </text>
           </g>
         )}

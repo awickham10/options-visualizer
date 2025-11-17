@@ -1,4 +1,6 @@
 import { useMemo } from 'react'
+import { parseContractSymbol, isITM } from '../lib/optionsUtils'
+import { formatISODate } from '../lib/formatters'
 
 /**
  * Custom hook to process and structure options chain data
@@ -37,23 +39,16 @@ export function useOptionsData(data, optionsData, optionType) {
 
       // First pass: collect ALL expirations and strikes
       Object.entries(optionsData).forEach(([contractSymbol, optData]) => {
-        const match = contractSymbol.match(/^([A-Z]+)(\d{6})([CP])(\d{8})$/)
-        if (!match) return
+        const parsed = parseContractSymbol(contractSymbol)
+        if (!parsed) return
 
-        const [, , dateStr, optionType, strikeStr] = match
-
-        // Parse expiration date (YYMMDD)
-        const year = 2000 + parseInt(dateStr.substring(0, 2))
-        const month = parseInt(dateStr.substring(2, 4))
-        const day = parseInt(dateStr.substring(4, 6))
-        const expDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        const expDate = formatISODate(parsed.expirationDate)
 
         // Always collect expiration dates, regardless of strike
         allExpirations.add(expDate)
 
-        // Parse strike price (8 digits, last 3 are decimals)
-        const strike = parseInt(strikeStr) / 1000
-        allStrikes.add(strike)
+        // Collect strike prices
+        allStrikes.add(parsed.strike)
       })
 
       // Second pass: populate options data and track puts/calls separately
@@ -62,17 +57,12 @@ export function useOptionsData(data, optionsData, optionType) {
       let callCount = 0
 
       Object.entries(optionsData).forEach(([contractSymbol, optData]) => {
-        const match = contractSymbol.match(/^([A-Z]+)(\d{6})([CP])(\d{8})$/)
-        if (!match) return
+        const parsed = parseContractSymbol(contractSymbol)
+        if (!parsed) return
 
-        const [, , dateStr, optionType, strikeStr] = match
+        const { expirationDate, optionType, strike } = parsed
+        const expDate = formatISODate(expirationDate)
 
-        const year = 2000 + parseInt(dateStr.substring(0, 2))
-        const month = parseInt(dateStr.substring(2, 4))
-        const day = parseInt(dateStr.substring(4, 6))
-        const expDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-
-        const strike = parseInt(strikeStr) / 1000
         const latestQuote = optData.latestQuote
         const latestTrade = optData.latestTrade
 
@@ -120,7 +110,7 @@ export function useOptionsData(data, optionsData, optionType) {
         const greeks = optData.greeks || {}
         optionsByExp[expDate][strike][optionKey] = {
           strike,
-          expDate: new Date(expDate),
+          expDate: expirationDate,
           contractSymbol,
           optionType,
           price: latestQuote?.ap || latestQuote?.bp || 0,
@@ -132,7 +122,7 @@ export function useOptionsData(data, optionsData, optionType) {
           volume: latestTrade?.s || 0,
           impliedVolatility: optData.impliedVolatility || 0,
           openInterest: optData.openInterest || 0,
-          isITM: optionType === 'C' ? strike < currentPrice : strike > currentPrice,
+          isITM: isITM(strike, currentPrice, optionType),
           // Greeks from API
           delta: greeks.delta || 0,
           gamma: greeks.gamma || 0,
@@ -252,7 +242,7 @@ export function useOptionsData(data, optionsData, optionType) {
       // Filter by selected option type (call or put)
       const optionsGrid = strikes.map(strike => {
         return expirations.map(expDate => {
-          const expKey = expDate.toISOString().split('T')[0]
+          const expKey = formatISODate(expDate)
           const optionData = optionsByExp[expKey]?.[strike]
 
           // Extract the selected option type (call or put)
