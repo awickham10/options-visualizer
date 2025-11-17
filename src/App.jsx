@@ -4,6 +4,7 @@ import { ModernOptionsChart } from './components/ModernOptionsChart'
 import { PriceChart } from './components/PriceChart'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useCoveredCallMetrics } from './hooks/useCoveredCallMetrics'
+import { formatPrice, formatDate, formatGreek, formatIV } from './lib/formatters'
 
 function App() {
   const [symbol, setSymbol] = useState('')
@@ -380,7 +381,7 @@ function App() {
                         fontFamily: 'Manrope, sans-serif',
                         fontWeight: 300
                       }}>
-                        ${selectedCell.strike.toFixed(2)}
+                        {formatPrice(selectedCell.strike)}
                       </div>
                     </div>
 
@@ -389,7 +390,7 @@ function App() {
                         Expiration
                       </div>
                       <div className="text-sm font-medium mb-1" style={{ color: 'var(--color-text-primary)' }}>
-                        {selectedCell.expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {formatDate(selectedCell.expDate, 'medium')}
                       </div>
                       <div className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
                         {metrics?.daysToExpiration} DTE
@@ -401,7 +402,7 @@ function App() {
                         Premium (Bid)
                       </div>
                       <div className="text-2xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                        ${selectedCell.bid.toFixed(2)}
+                        {formatPrice(selectedCell.bid)}
                       </div>
                       <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
                         × {selectedCell.bidSize}
@@ -413,7 +414,7 @@ function App() {
                         Ask
                       </div>
                       <div className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                        ${selectedCell.ask.toFixed(2)}
+                        {formatPrice(selectedCell.ask)}
                       </div>
                       <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
                         × {selectedCell.askSize}
@@ -425,7 +426,7 @@ function App() {
                         Delta
                       </div>
                       <div className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                        {selectedCell.delta ? selectedCell.delta.toFixed(3) : 'N/A'}
+                        {selectedCell.delta ? formatGreek(selectedCell.delta, 'delta') : 'N/A'}
                       </div>
                       <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
                         {selectedCell.delta ? `~${(Math.abs(selectedCell.delta) * 100).toFixed(0)}% prob` : ''}
@@ -437,7 +438,7 @@ function App() {
                         Theta
                       </div>
                       <div className="text-xl font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                        {selectedCell.theta ? selectedCell.theta.toFixed(3) : 'N/A'}
+                        {selectedCell.theta ? formatGreek(selectedCell.theta, 'theta') : 'N/A'}
                       </div>
                       <div className="text-[10px] mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
                         per day
@@ -546,7 +547,7 @@ function App() {
                         Gamma
                       </div>
                       <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                        {selectedCell.gamma ? selectedCell.gamma.toFixed(4) : 'N/A'}
+                        {selectedCell.gamma ? formatGreek(selectedCell.gamma, 'gamma') : 'N/A'}
                       </div>
                     </div>
 
@@ -555,7 +556,7 @@ function App() {
                         Vega
                       </div>
                       <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                        {selectedCell.vega ? selectedCell.vega.toFixed(4) : 'N/A'}
+                        {selectedCell.vega ? formatGreek(selectedCell.vega, 'vega') : 'N/A'}
                       </div>
                     </div>
 
@@ -564,7 +565,7 @@ function App() {
                         Implied Vol
                       </div>
                       <div className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                        {selectedCell.impliedVolatility ? `${(selectedCell.impliedVolatility * 100).toFixed(1)}%` : 'N/A'}
+                        {selectedCell.impliedVolatility ? formatIV(selectedCell.impliedVolatility) : 'N/A'}
                       </div>
                     </div>
 
