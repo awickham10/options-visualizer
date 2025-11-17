@@ -34,20 +34,4 @@ const logger = pino({
   timestamp: pino.stdTimeFunctions.isoTime,
 });
 
-/**
- * Create a child logger with additional context
- * @param {Object} bindings - Additional context to bind to all log messages
- * @returns {Object} Child logger instance
- *
- * @example
- * const reqLogger = logger.child({ requestId: '123' })
- * reqLogger.info('Processing request')
- */
-logger.child = function(bindings) {
-  return pino({
-    ...this.bindings(),
-    ...bindings
-  }, this);
-};
-
 module.exports = logger;
