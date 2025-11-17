@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react'
 import { TrendingUp, Search, Activity } from 'lucide-react'
 import { ModernOptionsChart } from './components/ModernOptionsChart'
 import { PriceChart } from './components/PriceChart'
+import { useWebSocket } from './hooks/useWebSocket'
+import { useCoveredCallMetrics } from './hooks/useCoveredCallMetrics'
 
 function App() {
   const [symbol, setSymbol] = useState('')
@@ -16,10 +18,40 @@ function App() {
   const [costBasis, setCostBasis] = useState(null) // User's purchase price
   const [isEditingCostBasis, setIsEditingCostBasis] = useState(false)
   const [loadingCellDetails, setLoadingCellDetails] = useState(false)
-  const wsRef = useRef(null)
 
   // Cache for full option contract details
   const optionDetailsCache = useRef({})
+
+  // WebSocket hook for real-time data streaming
+  const { connectWebSocket, disconnect } = useWebSocket({
+    onStockBar: (data) => {
+      // Add new bar to historical data
+      setHistoricalData(prev => {
+        const newData = [...prev, {
+          time: data.time,
+          open: data.open,
+          high: data.high,
+          low: data.low,
+          close: data.close,
+          volume: data.volume
+        }]
+        // Keep last 100 bars
+        return newData.slice(-100)
+      })
+      setLastUpdated(new Date().toISOString())
+    },
+    onOptionsSnapshot: (data) => {
+      setOptionsData(data)
+      setLastUpdated(new Date().toISOString())
+    },
+    onError: (error) => {
+      setError(error)
+    },
+    onSubscribed: (symbol) => {
+      console.log(`Subscribed to ${symbol}`)
+    },
+    setIsStreaming
+  })
 
   // Check streaming status on mount
   useEffect(() => {
@@ -41,14 +73,6 @@ function App() {
     return () => clearInterval(interval)
   }, [])
 
-  // Cleanup WebSocket on unmount
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close()
-      }
-    }
-  }, [])
 
   const fetchStockData = async () => {
     if (!symbol.trim()) {
@@ -88,63 +112,6 @@ function App() {
     }
   }
 
-  const connectWebSocket = (sym) => {
-    // Close existing connection if any
-    if (wsRef.current) {
-      wsRef.current.close()
-    }
-
-    const ws = new WebSocket('ws://localhost:3001')
-
-    ws.onopen = () => {
-      console.log('WebSocket connected')
-      setIsStreaming(true)
-      // Subscribe to symbol
-      ws.send(JSON.stringify({ type: 'subscribe', symbol: sym }))
-    }
-
-    ws.onmessage = (event) => {
-      const message = JSON.parse(event.data)
-
-      if (message.type === 'stock_bar') {
-        // Add new bar to historical data
-        setHistoricalData(prev => {
-          const newData = [...prev, {
-            time: message.data.time,
-            open: message.data.open,
-            high: message.data.high,
-            low: message.data.low,
-            close: message.data.close,
-            volume: message.data.volume
-          }]
-          // Keep last 100 bars
-          return newData.slice(-100)
-        })
-        setLastUpdated(new Date().toISOString())
-      } else if (message.type === 'options_snapshot') {
-        // Update options data
-        setOptionsData(message.data)
-        setLastUpdated(new Date().toISOString())
-      } else if (message.type === 'error') {
-        console.error('WebSocket error:', message.error)
-        setError(message.error)
-      } else if (message.type === 'subscribed') {
-        console.log(`Subscribed to ${message.symbol}`)
-      }
-    }
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error)
-      setIsStreaming(false)
-    }
-
-    ws.onclose = () => {
-      console.log('WebSocket disconnected')
-      setIsStreaming(false)
-    }
-
-    wsRef.current = ws
-  }
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -220,66 +187,8 @@ function App() {
     }
   }
 
-  // Calculate covered call metrics
-  const calculateCoveredCallMetrics = (cell, userCostBasis = null) => {
-    if (!cell) return null
-
-    const today = new Date()
-    const expDate = new Date(cell.expDate)
-    const daysToExpiration = Math.max(0, Math.ceil((expDate - today) / (1000 * 60 * 60 * 24)))
-
-    // For covered calls, you SELL the call, so use bid price (what you receive)
-    const premium = cell.bid
-    const currentPrice = cell.currentPrice
-    const strike = cell.strike
-    const basis = userCostBasis || currentPrice // Use user's cost basis if provided
-
-    // Avoid division by zero
-    if (currentPrice === 0 || daysToExpiration === 0 || basis === 0) {
-      return { daysToExpiration, premium }
-    }
-
-    // Premium return based on current price (what someone buying today would get)
-    const annualizedReturn = (premium / currentPrice) * (365 / daysToExpiration) * 100
-
-    // Premium return based on YOUR cost basis (your actual income yield)
-    const premiumReturnOnCost = (premium / basis) * (365 / daysToExpiration) * 100
-
-    // Return if called - based on YOUR cost basis
-    // Total gain = appreciation to strike + premium collected
-    const returnIfCalled = ((strike - basis + premium) / basis) * (365 / daysToExpiration) * 100
-
-    // Current unrealized position
-    const currentPosition = ((currentPrice - basis) / basis) * 100
-    const currentPositionAnnualized = currentPosition * (365 / daysToExpiration)
-
-    // Total return if called (not annualized)
-    const totalReturnIfCalled = ((strike - basis + premium) / basis) * 100
-
-    // Downside protection
-    const downsideProtection = premium
-    const downsideProtectionPercent = (premium / currentPrice) * 100
-
-    // Actual breakeven (stock price can drop this much before you lose money)
-    const breakeven = basis - premium
-    const breakevenPercent = ((currentPrice - breakeven) / currentPrice) * 100
-
-    return {
-      daysToExpiration,
-      premium,
-      annualizedReturn, // Premium yield at current price
-      premiumReturnOnCost, // Premium yield on your cost basis
-      returnIfCalled, // Annualized return if called away
-      totalReturnIfCalled, // Total return % if called (not annualized)
-      currentPosition, // Current unrealized gain/loss %
-      currentPositionAnnualized, // Annualized based on time held
-      downsideProtection,
-      downsideProtectionPercent,
-      breakeven, // Your actual breakeven price
-      breakevenPercent, // % cushion from current price
-      usingCostBasis: userCostBasis !== null && userCostBasis !== currentPrice
-    }
-  }
+  // Use covered call metrics hook for calculations
+  const metrics = useCoveredCallMetrics(selectedCell, costBasis)
 
   // Close on Escape key
   useEffect(() => {
@@ -418,9 +327,7 @@ function App() {
           overflow: 'hidden'
         }}
       >
-        {selectedCell && (() => {
-          const metrics = calculateCoveredCallMetrics(selectedCell, costBasis)
-          return (
+        {selectedCell && metrics && (
             <div className="h-full relative">
               {/* Loading overlay */}
               {loadingCellDetails && (
@@ -691,8 +598,7 @@ function App() {
                 </div>
               </div>
             </div>
-          )
-        })()}
+        )}
       </div>
     </div>
   )
