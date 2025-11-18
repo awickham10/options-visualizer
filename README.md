@@ -1,8 +1,8 @@
 # Options Visualizer
 
-A modern, real-time options chain visualizer built with React and powered by Alpaca Markets API. Visualize stock prices and options data with interactive heatmaps, live streaming updates, and a clean, minimalist interface.
+A modern, real-time options chain visualizer built with React, TypeScript, and powered by Alpaca Markets API. Visualize stock prices and options data with interactive heatmaps, live streaming updates, and a clean, minimalist interface.
 
-![Options Visualizer](https://img.shields.io/badge/React-19.2.0-blue) ![Node](https://img.shields.io/badge/Node-Express-green) ![License](https://img.shields.io/badge/license-ISC-lightgrey)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.7.3-blue) ![React](https://img.shields.io/badge/React-19.2.0-blue) ![Node](https://img.shields.io/badge/Node-Express-green) ![License](https://img.shields.io/badge/license-ISC-lightgrey)
 
 ## Features
 
@@ -21,16 +21,20 @@ A modern, real-time options chain visualizer built with React and powered by Alp
 ## Technology Stack
 
 **Frontend:**
+- **TypeScript 5.7.3** - Full type safety across the application
 - React 19.2.0
-- Vite 7.2.2 (build tool)
+- Vite 7.2.2 (build tool with esbuild)
 - Recharts 3.4.1 (charting)
 - TailwindCSS 3.4.18 (styling)
 - Lucide React (icons)
 
 **Backend:**
+- **TypeScript 5.7.3** - Type-safe Node.js backend
+- **tsx** - TypeScript execution for Node.js
 - Node.js with Express 5.1.0
 - WebSocket (ws 8.18.3)
 - Alpaca Trade API 3.1.3
+- Pino (structured logging)
 - CORS enabled
 
 ## Prerequisites
@@ -96,6 +100,33 @@ npm run server
 npm run client
 ```
 
+### Type Checking
+
+Run TypeScript type checks:
+
+```bash
+npm run typecheck
+```
+
+This checks all TypeScript files for type errors without emitting any files. Useful for CI/CD pipelines.
+
+### Testing
+
+Run unit tests with Vitest:
+
+```bash
+npm run test        # Run tests in watch mode
+npm run test:run    # Run tests once
+npm run test:ui     # Run tests with UI
+```
+
+The project includes comprehensive unit tests for utility functions:
+- `chartUtils.test.ts` - Chart calculations and visualization utilities (32 tests)
+- `formatters.test.ts` - Data formatting functions (46 tests)
+- `optionsUtils.test.ts` - Options contract parsing and analysis (24 tests)
+
+All tests are written in TypeScript with full type safety.
+
 ### Production Build
 
 ```bash
@@ -120,21 +151,35 @@ npm run preview
 ```
 options-visualizer/
 ├── src/
-│   ├── components/          # React components
-│   │   ├── ModernOptionsChart.jsx    # Main options visualization
-│   │   ├── PriceChart.jsx           # Stock price chart
-│   │   ├── OptionsGrid.jsx          # Options grid layout
-│   │   ├── HeatmapToggle.jsx        # Heatmap view controls
+│   ├── components/          # React components (TypeScript)
+│   │   ├── ModernOptionsChart.tsx    # Main options visualization
+│   │   ├── PriceChart.tsx           # Stock price chart
+│   │   ├── OptionsGrid.tsx          # Options grid layout
+│   │   ├── HeatmapToggle.tsx        # Heatmap view controls
 │   │   └── ...
-│   ├── lib/
-│   │   └── utils.js        # Utility functions
-│   ├── App.jsx             # Main application component
-│   └── main.jsx            # Application entry point
-├── server/
-│   └── index.js            # Express + WebSocket server
+│   ├── hooks/              # Custom React hooks
+│   │   ├── useOptionsData.ts
+│   │   └── useCoveredCallMetrics.ts
+│   ├── lib/                # Utility libraries
+│   │   ├── formatters.ts
+│   │   ├── chartUtils.ts
+│   │   └── logger.ts
+│   ├── types/              # TypeScript type definitions
+│   │   └── index.ts
+│   ├── App.tsx             # Main application component
+│   └── main.tsx            # Application entry point
+├── server/                 # Backend (TypeScript)
+│   ├── index.ts            # Express + WebSocket server
+│   ├── routes/             # API routes
+│   ├── middleware/         # Express middleware
+│   ├── api/                # API services
+│   ├── types/              # Backend type definitions
+│   └── utils/              # Backend utilities
+├── tsconfig.json           # TypeScript config (frontend)
+├── tsconfig.server.json    # TypeScript config (backend)
 ├── index.html              # HTML template
 ├── package.json
-└── vite.config.cjs         # Vite configuration
+└── vite.config.ts          # Vite configuration
 ```
 
 ## API Endpoints
@@ -230,6 +275,27 @@ LOG_LEVEL=info  # Options: debug, info, warn, error
 
 The application uses Alpaca's IEX data feed, which is available on the free tier. Real-time streaming requires an active Alpaca account with streaming enabled. If streaming is unavailable, the app falls back to REST API polling.
 
+## Development
+
+### TypeScript
+
+This project uses TypeScript throughout the codebase for type safety:
+
+- **Strict mode enabled** - Catches errors at compile time
+- **Full type coverage** - All components, hooks, and utilities are typed
+- **Type definitions** - Located in `src/types/index.ts` and `server/types/index.ts`
+
+**Type checking:**
+```bash
+npm run typecheck  # Check for type errors
+```
+
+**IDE Support:**
+- VSCode: Built-in TypeScript support
+- Other editors: May need TypeScript language server
+
+For more details on the TypeScript migration, see [TS_MIGRATION.md](./TS_MIGRATION.md).
+
 ## Troubleshooting
 
 **WebSocket connection fails:**
@@ -246,6 +312,11 @@ The application uses Alpaca's IEX data feed, which is available on the free tier
 - This is normal if streaming isn't enabled on your Alpaca account
 - The app will continue to work with REST API data
 - Historical data will still be displayed
+
+**TypeScript errors:**
+- Run `npm run typecheck` to see all type errors
+- Most errors are caught at development time by your IDE
+- See [TS_MIGRATION.md](./TS_MIGRATION.md) for type patterns and examples
 
 ## Future Enhancements
 

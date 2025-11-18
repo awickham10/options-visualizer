@@ -23,17 +23,21 @@ This document provides AI assistants (like Claude) with comprehensive context ab
 ### Tech Stack
 
 **Frontend:**
+- **TypeScript 5.7.3** - Type-safe JavaScript with full coverage
 - **React 19.2.0** - UI framework
-- **Vite 7.2.2** - Build tool and dev server
+- **Vite 7.2.2** - Build tool and dev server with esbuild
 - **Recharts 3.4.1** - Charting library for price charts
 - **TailwindCSS 3.4.18** - Utility-first CSS framework
 - **Lucide React** - Icon library
 - **WebSocket API** - Real-time data streaming
 
 **Backend:**
+- **TypeScript 5.7.3** - Type-safe Node.js backend
+- **tsx** - TypeScript execution for Node.js
 - **Express 5.1.0** - Web server framework
 - **ws 8.18.3** - WebSocket server implementation
 - **@alpacahq/alpaca-trade-api** - Alpaca Markets SDK
+- **Pino** - Structured logging
 - **cors** - Cross-origin resource sharing
 - **dotenv** - Environment variable management
 
@@ -41,8 +45,8 @@ This document provides AI assistants (like Claude) with comprehensive context ab
 
 ### Frontend Components
 
-#### `src/App.jsx`
-**Main application component** - Orchestrates the entire UI
+#### `src/App.tsx`
+**Main application component** - Orchestrates the entire UI (TypeScript)
 
 **State Management:**
 - `symbol` / `currentSymbol` - Stock ticker input and active symbol
@@ -63,8 +67,8 @@ This document provides AI assistants (like Claude) with comprehensive context ab
 - `error` - Error messages
 - `subscribed` - Subscription confirmation
 
-#### `src/components/ModernOptionsChart.jsx`
-**Primary visualization component** - Renders options chain heatmaps
+#### `src/components/ModernOptionsChart.tsx`
+**Primary visualization component** - Renders options chain heatmaps (TypeScript)
 
 **Features:**
 - Displays options grid with strikes (rows) and expirations (columns)
@@ -78,22 +82,42 @@ This document provides AI assistants (like Claude) with comprehensive context ab
 - Responsive layout with horizontal scrolling
 
 **Data Processing:**
-```javascript
+```typescript
 // Groups options by strike price and expiration date
 // Calculates P/C ratio for each strike
 // Determines color intensity based on selected heatmap mode
+// All data structures fully typed with TypeScript interfaces
 ```
 
-#### `src/components/PriceChart.jsx`
+#### `src/components/PriceChart.tsx`
 Simple line chart displaying historical stock prices using Recharts.
 
-#### `src/components/HeatmapToggle.jsx`
+#### `src/components/HeatmapToggle.tsx`
 Toggle buttons to switch between different heatmap visualization modes.
+
+### Type Definitions
+
+#### `src/types/index.ts`
+**Comprehensive TypeScript type definitions**
+
+**Core Data Types:**
+- `StockBar` - OHLCV bar data
+- `OptionsData` - Options chain keyed by contract symbol
+- `OptionSnapshot` - Individual option contract data
+- `OptionGreeks` - Delta, Gamma, Theta, Vega
+- `ParsedOptionContract` - Parsed contract with calculations
+- `CoveredCallMetrics` - Covered call strategy metrics
+
+**UI Types:**
+- `HeatmapMode` - Visualization modes
+- `OptionType` - Call/Put selection
+- `ApiResponse<T>` - Generic API response wrapper
+- WebSocket message types
 
 ### Backend Components
 
-#### `server/index.js`
-**Express + WebSocket server**
+#### `server/index.ts`
+**Express + WebSocket server** (TypeScript)
 
 **REST Endpoints:**
 
@@ -182,6 +206,11 @@ Client connects → Server fetches options via REST → ws.send('options_snapsho
 ## State Management
 
 Currently uses **React useState hooks** with props drilling. No global state management library (Redux, Zustand, etc.).
+
+**TypeScript Integration:**
+- All state hooks are fully typed
+- Interfaces defined for complex state objects
+- Type-safe event handlers and callbacks
 
 **Possible future enhancement:** Consider adding Zustand or Context API if state complexity increases.
 
@@ -341,12 +370,17 @@ See full list in [IDEAS.md](./IDEAS.md).
 
 ```
 Key Files:
-├── src/App.jsx                          # Main app logic
-├── src/components/ModernOptionsChart.jsx # Primary visualization
-├── server/index.js                       # Backend server
+├── src/App.tsx                          # Main app logic (TypeScript)
+├── src/types/index.ts                   # Type definitions
+├── src/components/ModernOptionsChart.tsx # Primary visualization
+├── server/index.ts                       # Backend server (TypeScript)
+├── server/types/index.ts                 # Backend type definitions
 ├── package.json                          # Dependencies and scripts
-├── vite.config.cjs                       # Vite configuration
+├── tsconfig.json                         # TypeScript config (frontend)
+├── tsconfig.server.json                  # TypeScript config (backend)
+├── vite.config.ts                        # Vite configuration
 ├── tailwind.config.cjs                   # Tailwind configuration
+├── TS_MIGRATION.md                       # TypeScript migration guide
 └── IDEAS.md                              # Feature roadmap
 ```
 
@@ -371,21 +405,61 @@ Common issues:
 
 ## Code Style
 
-- **JavaScript:** ES6+ with async/await
+- **Language:** TypeScript with strict mode enabled
+- **JavaScript:** ES2020+ with async/await
 - **React:** Functional components with hooks (no class components)
-- **Naming:** camelCase for variables, PascalCase for components
+- **Naming:** camelCase for variables, PascalCase for components and types
 - **Formatting:** Consistent indentation (2 spaces)
+- **Type Safety:** Explicit typing for complex structures, inference for simple ones
 
 ## Dependencies Explanation
 
 **Why each major dependency:**
+- `typescript` - Type safety and better developer experience
 - `react` - UI framework
 - `recharts` - Simple, React-native charting library
 - `@alpacahq/alpaca-trade-api` - Official Alpaca SDK
 - `ws` - Lightweight WebSocket server
 - `express` - Minimal, flexible Node.js framework
-- `vite` - Fast dev server with HMR
+- `vite` - Fast dev server with HMR and esbuild
+- `tsx` - TypeScript execution for Node.js
+- `pino` - Structured logging
 - `tailwindcss` - Rapid UI development with utility classes
+
+## TypeScript Development
+
+### Running Type Checks
+
+```bash
+npm run typecheck  # Check all TypeScript files
+```
+
+### Key Type Patterns
+
+**Component Props:**
+```typescript
+interface MyComponentProps {
+  data: StockBar[]
+  onSelect?: (cell: OptionCell) => void
+}
+```
+
+**State Hooks:**
+```typescript
+const [data, setData] = useState<StockBar[]>([])
+const [selected, setSelected] = useState<OptionCell | null>(null)
+```
+
+**Critical Pattern - Numeric Null Checks:**
+```typescript
+// ✅ Correct: Explicit null/undefined check
+if (value === null || value === undefined) { ... }
+
+// ❌ Wrong: Falsy check fails when value is 0
+if (!value) { ... }
+```
+
+This is critical for financial data where 0 is a valid value (e.g., bid prices).
 
 ## Resources
 
