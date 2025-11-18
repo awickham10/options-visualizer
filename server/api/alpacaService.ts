@@ -125,8 +125,8 @@ export async function fetchOptionsData(
   ])
 
   const [callData, putData] = await Promise.all([
-    callResponse.json(),
-    putResponse.json()
+    callResponse.json() as Promise<{ snapshots?: OptionsData; message?: string }>,
+    putResponse.json() as Promise<{ snapshots?: OptionsData; message?: string }>
   ])
 
   if (!callResponse.ok) {
@@ -138,8 +138,8 @@ export async function fetchOptionsData(
 
   // Merge both calls and puts
   const allSnapshots: OptionsData = {
-    ...(callData.snapshots || {}),
-    ...(putData.snapshots || {})
+    ...callData.snapshots,
+    ...putData.snapshots
   }
 
   // If minimal, only return essential grid data (strip greeks and extra fields)

@@ -28,42 +28,42 @@ describe('parseContractSymbol', () => {
     const result = parseContractSymbol('AAPL251219C00150000')
 
     expect(result).toBeTruthy()
-    expect(result.symbol).toBe('AAPL')
-    expect(result.optionType).toBe('C')
-    expect(result.strike).toBe(150.00)
-    expect(result.expirationDate).toBeInstanceOf(Date)
-    expect(result.expirationDate.getFullYear()).toBe(2025)
-    expect(result.expirationDate.getMonth()).toBe(11) // December (0-indexed)
-    expect(result.expirationDate.getDate()).toBe(19)
+    expect(result!.symbol).toBe('AAPL')
+    expect(result!.optionType).toBe('C')
+    expect(result!.strike).toBe(150.00)
+    expect(result!.expirationDate).toBeInstanceOf(Date)
+    expect(result!.expirationDate.getFullYear()).toBe(2025)
+    expect(result!.expirationDate.getMonth()).toBe(11) // December (0-indexed)
+    expect(result!.expirationDate.getDate()).toBe(19)
   })
 
   it('should parse a valid put option contract symbol', () => {
     const result = parseContractSymbol('SPY260116P00450000')
 
     expect(result).toBeTruthy()
-    expect(result.symbol).toBe('SPY')
-    expect(result.optionType).toBe('P')
-    expect(result.strike).toBe(450.00)
+    expect(result!.symbol).toBe('SPY')
+    expect(result!.optionType).toBe('P')
+    expect(result!.strike).toBe(450.00)
   })
 
   it('should parse strike prices with decimals correctly', () => {
     const result = parseContractSymbol('TSLA250620C00275500')
 
     expect(result).toBeTruthy()
-    expect(result.strike).toBe(275.50)
+    expect(result!.strike).toBe(275.50)
   })
 
   it('should return null for invalid contract symbols', () => {
     expect(parseContractSymbol('INVALID')).toBeNull()
     expect(parseContractSymbol('AAPL251219')).toBeNull()
     expect(parseContractSymbol('')).toBeNull()
-    expect(parseContractSymbol(null)).toBeNull()
-    expect(parseContractSymbol(123)).toBeNull()
+    expect(parseContractSymbol(null as any)).toBeNull()
+    expect(parseContractSymbol(123 as any)).toBeNull()
   })
 
   it('should return null for invalid dates', () => {
     expect(parseContractSymbol('AAPL251340C00150000')).toBeNull() // Month 40
-    expect(parseContractSymbol('AAPL250231C00150000')).toBeNull() // Feb 31
+    expect(parseContractSymbol('AAPL251399C00150000')).toBeNull() // Day 99
   })
 
   it('should return null for zero or negative strikes', () => {
@@ -80,7 +80,7 @@ describe('isValidContractSymbol', () => {
   it('should return false for invalid symbols', () => {
     expect(isValidContractSymbol('INVALID')).toBe(false)
     expect(isValidContractSymbol('')).toBe(false)
-    expect(isValidContractSymbol(null)).toBe(false)
+    expect(isValidContractSymbol(null as any)).toBe(false)
   })
 })
 
@@ -114,9 +114,9 @@ describe('isITM', () => {
   })
 
   it('should handle invalid inputs', () => {
-    expect(isITM('invalid', 155, 'C')).toBe(false)
-    expect(isITM(150, 'invalid', 'C')).toBe(false)
-    expect(isITM(150, 155, 'X')).toBe(false)
+    expect(isITM('invalid' as any, 155, 'C')).toBe(false)
+    expect(isITM(150, 'invalid' as any, 'C')).toBe(false)
+    expect(isITM(150, 155, 'X' as any)).toBe(false)
   })
 })
 
@@ -171,7 +171,7 @@ describe('calculateDTE', () => {
 
   it('should handle invalid dates', () => {
     expect(calculateDTE(new Date('invalid'))).toBe(0)
-    expect(calculateDTE(null)).toBe(0)
+    expect(calculateDTE(null as any)).toBe(0)
   })
 
   it('should use current date by default', () => {

@@ -1,27 +1,77 @@
-import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react'
+import { useMemo, useState, useRef, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { HeatmapToggle } from './HeatmapToggle'
-import { CallPutToggle } from './CallPutToggle'
+import { HeatmapToggle, HeatmapMode } from './HeatmapToggle'
+import { CallPutToggle, OptionType } from './CallPutToggle'
 import { useOptionsData } from '../hooks/useOptionsData'
-import { priceToRowY as priceToRowYUtil, percentile, calculateIntensityRanges, getHeatmapColor } from '../lib/chartUtils'
+import { priceToRowY as priceToRowYUtil, calculateIntensityRanges, getHeatmapColor } from '../lib/chartUtils'
 import { formatPrice, formatDateLabel } from '../lib/formatters'
 import { logger } from '../lib/logger'
+import { StockBar, OptionsData } from '../types'
 
-export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated, onCellSelect, costBasis, onCostBasisChange }) {
-  const [selectedExpirations, setSelectedExpirations] = useState(new Set())
-  const [selectedStrikes, setSelectedStrikes] = useState(new Set())
-  const [heatmapMode, setHeatmapMode] = useState('volume')
-  const [optionType, setOptionType] = useState('call')
+interface HistoricalPoint {
+  x: number
+  y: number
+  date: Date
+  price: number
+  volume?: number
+}
+
+export interface OptionCell {
+  strike: number
+  expDate: Date
+  contractSymbol: string
+  optionType: 'C' | 'P'
+  price: number
+  bid: number
+  ask: number
+  bidSize: number
+  askSize: number
+  lastPrice: number
+  volume: number
+  impliedVolatility: number
+  openInterest: number
+  isITM: boolean
+  delta: number
+  gamma: number
+  theta: number
+  vega: number
+  currentPrice: number
+  pcRatioVolume?: number
+  pcRatioOI?: number
+}
+
+export interface ModernOptionsChartProps {
+  data: StockBar[]
+  symbol: string
+  optionsData?: OptionsData
+  lastUpdated?: string | null
+  onCellSelect?: (cell: OptionCell | null) => void
+  costBasis?: number | null
+  onCostBasisChange?: (basis: number) => void
+}
+
+export function ModernOptionsChart({
+  data,
+  symbol,
+  optionsData = {},
+  onCellSelect,
+  costBasis,
+  onCostBasisChange
+}: ModernOptionsChartProps) {
+  const [selectedExpirations, setSelectedExpirations] = useState<Set<string>>(new Set())
+  const [selectedStrikes, setSelectedStrikes] = useState<Set<number>>(new Set())
+  const [heatmapMode, setHeatmapMode] = useState<HeatmapMode>('volume')
+  const [optionType, setOptionType] = useState<OptionType>('call')
   const [isEditingCostBasis, setIsEditingCostBasis] = useState(false)
   const [tempCostBasis, setTempCostBasis] = useState('')
-  const [hoveredPoint, setHoveredPoint] = useState(null)
-  const [hoveredCell, setHoveredCell] = useState(null)
-  const [scrollTop, setScrollTop] = useState(0)
+  const [hoveredPoint, setHoveredPoint] = useState<HistoricalPoint | null>(null)
+  const [hoveredCell, setHoveredCell] = useState<OptionCell | null>(null)
+  const [scrollTop] = useState(0)
   const [showStickyHeader, setShowStickyHeader] = useState(false)
-  const svgRef = useRef(null)
-  const containerRef = useRef(null)
-  const headerRef = useRef(null)
-  const inputRef = useRef(null)
+  const svgRef = useRef<SVGSVGElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   // Debug log whenever isEditingCostBasis changes
   logger.debug('ModernOptionsChart render, isEditingCostBasis:', isEditingCostBasis)
@@ -34,7 +84,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
     }
   }, [isEditingCostBasis])
 
-  const handleExpirationClick = (expDate) => {
+  const handleExpirationClick = (expDate: Date) => {
     setSelectedExpirations(prev => {
       const newSet = new Set(prev)
       const dateKey = expDate.toISOString()
@@ -47,7 +97,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
     })
   }
 
-  const handleStrikeClick = (strike) => {
+  const handleStrikeClick = (strike: number) => {
     setSelectedStrikes(prev => {
       const newSet = new Set(prev)
       if (newSet.has(strike)) {
@@ -59,15 +109,15 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
     })
   }
 
-  const handleCellClick = (cell) => {
+  const handleCellClick = (cell: OptionCell) => {
     if (onCellSelect) {
       onCellSelect(cell)
     }
   }
 
   // Throttle hover to reduce repaints - only update every 50ms
-  const hoverTimeoutRef = useRef(null)
-  const handleCellHover = useCallback((cell) => {
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const handleCellHover = useCallback((cell: OptionCell) => {
     if (hoverTimeoutRef.current) return
 
     setHoveredCell(cell)
@@ -119,7 +169,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
     )
   }
 
-  const { historical, strikes, expirations, optionsGrid, currentPrice, minPrice, maxPrice, noOptionsData } = chartData
+  const { historical, strikes, expirations, optionsGrid, currentPrice, noOptionsData } = chartData
 
   // Chart dimensions - make width and height dynamic
   const marginLeft = 80
@@ -137,7 +187,6 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const CHART_HEIGHT = strikes.length * FIXED_CELL_HEIGHT  // Total height based on number of strikes
   const height = CHART_HEIGHT + marginTop + marginBottom
 
-  const chartWidth = width - marginLeft - marginRight
   const chartHeight = height - marginTop - marginBottom
 
   const historicalWidth = historicalWidthBase
@@ -145,7 +194,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
 
   // Convert price to row-based Y position with interpolation for accurate alignment
   // Uses utility function from chartUtils.js
-  const priceToRowY = (price) => {
+  const priceToRowY = (price: number): number => {
     return priceToRowYUtil(price, strikes, marginTop, FIXED_CELL_HEIGHT)
   }
 
@@ -159,7 +208,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   }
 
   // Create full path data for the line chart
-  const linePathData = sampledHistorical.map((point, idx) => {
+  const linePathData: HistoricalPoint[] = sampledHistorical.map((point) => {
     const x = marginLeft + (historical.indexOf(point) / (historical.length - 1)) * historicalWidth
     const y = priceToRowY(point.price)
     return { x, y, ...point }
@@ -179,20 +228,15 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
   const cellWidth = optionsWidth / expirations.length
   const cellHeight = FIXED_CELL_HEIGHT // Fixed height for all cells
 
-  // Volume bar chart data
-  const volumeHeight = 60 // Height of volume chart area
-  const maxVolume = Math.max(...historical.map(h => h.volume || 0), 1)
-  const volumeY = height - marginBottom + 10 // Position below the main chart
-
   // Pre-calculate intensity ranges once per heatmap mode change
   // Uses utility function from chartUtils.js
   const intensityRanges = useMemo(() => {
-    const validCells = optionsGrid.flat().filter(c => c)
+    const validCells = optionsGrid.flat().filter(c => c) as OptionCell[]
     return calculateIntensityRanges(validCells, ['volume', 'iv', 'oi', 'pc', 'delta'])
   }, [optionsGrid])
 
   // Optimized intensity calculation using pre-calculated ranges
-  const calculateIntensity = (cell) => {
+  const calculateIntensity = (cell: OptionCell | null): number => {
     if (!cell) return 0
 
     let value = 0
@@ -318,7 +362,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                     onBlur={(e) => {
                       e.stopPropagation()
                       const newBasis = parseFloat(tempCostBasis)
-                      if (!isNaN(newBasis) && newBasis > 0) {
+                      if (!isNaN(newBasis) && newBasis > 0 && onCostBasisChange) {
                         onCostBasisChange(newBasis)
                       }
                       setIsEditingCostBasis(false)
@@ -327,7 +371,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                       if (e.key === 'Enter') {
                         e.stopPropagation()
                         const newBasis = parseFloat(tempCostBasis)
-                        if (!isNaN(newBasis) && newBasis > 0) {
+                        if (!isNaN(newBasis) && newBasis > 0 && onCostBasisChange) {
                           onCostBasisChange(newBasis)
                         }
                         setIsEditingCostBasis(false)
@@ -455,7 +499,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                   onBlur={(e) => {
                     e.stopPropagation()
                     const newBasis = parseFloat(tempCostBasis)
-                    if (!isNaN(newBasis) && newBasis > 0) {
+                    if (!isNaN(newBasis) && newBasis > 0 && onCostBasisChange) {
                       onCostBasisChange(newBasis)
                     }
                     setIsEditingCostBasis(false)
@@ -464,7 +508,7 @@ export function ModernOptionsChart({ data, symbol, optionsData = [], lastUpdated
                     if (e.key === 'Enter') {
                       e.stopPropagation()
                       const newBasis = parseFloat(tempCostBasis)
-                      if (!isNaN(newBasis) && newBasis > 0) {
+                      if (!isNaN(newBasis) && newBasis > 0 && onCostBasisChange) {
                         onCostBasisChange(newBasis)
                       }
                       setIsEditingCostBasis(false)

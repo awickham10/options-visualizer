@@ -1,4 +1,3 @@
-import React from 'react'
 import {
   LineChart,
   Line,
@@ -10,8 +9,22 @@ import {
   ResponsiveContainer,
   ReferenceLine
 } from 'recharts'
+import { StockBar } from '../types'
 
-export function PriceChart({ data, symbol, costBasis, currentPrice }) {
+interface ChartDataPoint {
+  date: string
+  price: number
+  volume: number
+}
+
+export interface PriceChartProps {
+  data: StockBar[]
+  symbol: string
+  costBasis?: number | null
+  currentPrice?: number | null
+}
+
+export function PriceChart({ data, symbol, costBasis, currentPrice }: PriceChartProps) {
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-96 text-gray-500">
@@ -20,7 +33,7 @@ export function PriceChart({ data, symbol, costBasis, currentPrice }) {
     )
   }
 
-  const chartData = data.map(bar => ({
+  const chartData: ChartDataPoint[] = data.map(bar => ({
     date: new Date(bar.time).toLocaleDateString(),
     price: bar.close,
     volume: bar.volume

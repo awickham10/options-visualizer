@@ -1,7 +1,17 @@
-import React from 'react'
+export type HeatmapMode = 'volume' | 'iv' | 'oi' | 'pc' | 'delta'
 
-export function HeatmapToggle({ mode, onModeChange }) {
-  const modes = [
+interface HeatmapModeOption {
+  id: HeatmapMode
+  label: string
+}
+
+export interface HeatmapToggleProps {
+  mode: HeatmapMode
+  onModeChange: (mode: HeatmapMode) => void
+}
+
+export function HeatmapToggle({ mode, onModeChange }: HeatmapToggleProps) {
+  const modes: HeatmapModeOption[] = [
     { id: 'volume', label: 'Volume' },
     { id: 'iv', label: 'Implied Vol' },
     { id: 'oi', label: 'Open Interest' },

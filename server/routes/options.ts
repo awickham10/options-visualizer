@@ -37,7 +37,7 @@ router.get('/options/:symbol', async (req: Request, res: Response) => {
   } catch (error) {
     const reqLogger = (req as RequestWithLogger).logger || logger
     const err = error as Error
-    reqLogger.error({ error: err.message, stack: err.stack, symbol: req.params.symbol }, 'Error fetching options')
+    reqLogger.error(`Error fetching options for ${req.params.symbol}: ${err.message}`)
     res.status(500).json({ success: false, error: err.message })
   }
 })
@@ -54,7 +54,7 @@ router.get('/option/:contractSymbol', async (req: Request, res: Response) => {
   } catch (error) {
     const reqLogger = (req as RequestWithLogger).logger || logger
     const err = error as Error
-    reqLogger.error({ error: err.message, stack: err.stack, contractSymbol: req.params.contractSymbol }, 'Error fetching option contract')
+    reqLogger.error(`Error fetching option contract ${req.params.contractSymbol}: ${err.message}`)
     const statusCode = err.message === 'Invalid contract symbol' ? 400 :
                        err.message === 'Contract not found' ? 404 : 500
     res.status(statusCode).json({ success: false, error: err.message })

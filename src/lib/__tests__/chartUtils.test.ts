@@ -150,7 +150,7 @@ describe('calculateIntensityRange', () => {
   })
 
   it('should filter out null cells', () => {
-    const cellsWithNull = [...cells, null, undefined]
+    const cellsWithNull = [...cells, null, undefined] as any
     const range = calculateIntensityRange(cellsWithNull, 'volume')
 
     expect(range).toBeTruthy()
@@ -210,8 +210,8 @@ describe('sampleArray', () => {
   })
 
   it('should handle non-array input', () => {
-    expect(sampleArray(null, 2)).toEqual([])
-    expect(sampleArray(undefined, 2)).toEqual([])
+    expect(sampleArray(null as any, 2)).toEqual([])
+    expect(sampleArray(undefined as any, 2)).toEqual([])
   })
 })
 

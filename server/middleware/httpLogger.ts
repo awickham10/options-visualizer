@@ -30,11 +30,7 @@ function httpLoggerMiddleware(req: Request, res: Response, next: NextFunction): 
   })
 
   // Log incoming request
-  reqWithLogger.logger.info({
-    type: 'request',
-    userAgent: req.get('user-agent'),
-    ip: req.ip || req.socket.remoteAddress,
-  }, 'Incoming request')
+  reqWithLogger.logger.info(`Incoming request: ${req.method} ${req.url}`)
 
   // Intercept the response finish event
   res.on('finish', () => {
@@ -42,20 +38,12 @@ function httpLoggerMiddleware(req: Request, res: Response, next: NextFunction): 
 
     const logLevel = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info'
 
-    reqWithLogger.logger![logLevel]({
-      type: 'response',
-      statusCode: res.statusCode,
-      duration: `${duration}ms`,
-    }, 'Request completed')
+    reqWithLogger.logger![logLevel](`Request completed: ${res.statusCode} (${duration}ms)`)
   })
 
   // Intercept errors
   res.on('error', (error: Error) => {
-    reqWithLogger.logger!.error({
-      type: 'response_error',
-      error: error.message,
-      stack: error.stack,
-    }, 'Request error')
+    reqWithLogger.logger!.error(`Request error: ${error.message}`)
   })
 
   next()

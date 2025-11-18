@@ -1,26 +1,52 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { TrendingUp, Search, Activity } from 'lucide-react'
-import { ModernOptionsChart } from './components/ModernOptionsChart'
-import { PriceChart } from './components/PriceChart'
+import { useState, useEffect, useRef, FormEvent } from 'react'
+import { Activity } from 'lucide-react'
+import { ModernOptionsChart, OptionCell } from './components/ModernOptionsChart'
 import { useCoveredCallMetrics } from './hooks/useCoveredCallMetrics'
 import { formatPrice, formatDate, formatGreek, formatIV } from './lib/formatters'
 import { logger } from './lib/logger'
+import { StockBar, OptionsData } from './types'
+
+interface ApiResponse<T> {
+  success: boolean
+  data?: T
+  error?: string
+}
+
+interface FullOptionData {
+  latestQuote?: {
+    bp?: number
+    ap?: number
+    bs?: number
+    as?: number
+  }
+  latestTrade?: {
+    p?: number
+    s?: number
+  }
+  greeks?: {
+    delta?: number
+    gamma?: number
+    theta?: number
+    vega?: number
+    implied_volatility?: number
+  }
+  openInterest?: number
+}
 
 function App() {
   const [symbol, setSymbol] = useState('')
   const [currentSymbol, setCurrentSymbol] = useState('')
-  const [historicalData, setHistoricalData] = useState([])
-  const [optionsData, setOptionsData] = useState([])
+  const [historicalData, setHistoricalData] = useState<StockBar[]>([])
+  const [optionsData, setOptionsData] = useState<OptionsData>({})
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [lastUpdated, setLastUpdated] = useState(null)
-  const [selectedCell, setSelectedCell] = useState(null)
-  const [costBasis, setCostBasis] = useState(null) // User's purchase price
-  const [isEditingCostBasis, setIsEditingCostBasis] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+  const [selectedCell, setSelectedCell] = useState<OptionCell | null>(null)
+  const [costBasis, setCostBasis] = useState<number | null>(null) // User's purchase price
   const [loadingCellDetails, setLoadingCellDetails] = useState(false)
 
   // Cache for full option contract details
-  const optionDetailsCache = useRef({})
+  const optionDetailsCache = useRef<Record<string, OptionCell>>({})
 
 
   const fetchStockData = async () => {
@@ -41,10 +67,10 @@ function App() {
         fetch(`/api/options/${symbolUpper}`)
       ])
 
-      const barsData = await barsResponse.json()
-      const optionsDataResult = await optionsResponse.json()
+      const barsData: ApiResponse<StockBar[]> = await barsResponse.json()
+      const optionsDataResult: ApiResponse<OptionsData> = await optionsResponse.json()
 
-      if (barsData.success) {
+      if (barsData.success && barsData.data) {
         setHistoricalData(barsData.data)
         setCurrentSymbol(symbolUpper)
         setLastUpdated(new Date().toISOString())
@@ -59,7 +85,7 @@ function App() {
         if (optionsDataResult.success && optionsDataResult.data) {
           setOptionsData(optionsDataResult.data)
         } else {
-          setOptionsData([])
+          setOptionsData({})
           logger.warn('No options data available:', optionsDataResult.error)
         }
       } else {
@@ -74,12 +100,12 @@ function App() {
   }
 
 
-  const handleSubmit = (e) => {
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     fetchStockData()
   }
 
-  const handleCellSelect = async (cell) => {
+  const handleCellSelect = async (cell: OptionCell | null) => {
     if (!cell) {
       setSelectedCell(null)
       return
@@ -108,13 +134,13 @@ function App() {
     try {
       // Fetch full contract details
       const response = await fetch(`/api/option/${cell.contractSymbol}`)
-      const result = await response.json()
+      const result: ApiResponse<FullOptionData> = await response.json()
 
       if (result.success && result.data) {
         const fullData = result.data
 
         // Extract all the detailed fields
-        const detailedCell = {
+        const detailedCell: OptionCell = {
           ...cell,
           // Update quote data if available
           bid: fullData.latestQuote?.bp || cell.bid,
@@ -153,7 +179,7 @@ function App() {
 
   // Close on Escape key
   useEffect(() => {
-    const handleKeyDown = (e) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && selectedCell) {
         setSelectedCell(null)
       }
@@ -423,7 +449,7 @@ function App() {
                             Current Position
                           </div>
                           <div className="text-2xl font-medium" style={{
-                            color: metrics?.currentPosition > 0 ? '#10b981' : metrics?.currentPosition < 0 ? '#ef4444' : 'var(--color-text-primary)'
+                            color: metrics?.currentPosition && metrics.currentPosition > 0 ? '#10b981' : metrics?.currentPosition && metrics.currentPosition < 0 ? '#ef4444' : 'var(--color-text-primary)'
                           }}>
                             {metrics?.currentPosition !== undefined ? `${metrics.currentPosition > 0 ? '+' : ''}${metrics.currentPosition.toFixed(2)}%` : 'N/A'}
                           </div>
@@ -438,7 +464,7 @@ function App() {
                           {metrics?.usingCostBasis ? 'Premium Yield' : 'Premium Return'}
                         </div>
                         <div className="text-2xl font-medium" style={{
-                          color: metrics?.premiumReturnOnCost > 0 ? '#10b981' : 'var(--color-text-primary)'
+                          color: metrics?.premiumReturnOnCost && metrics.premiumReturnOnCost > 0 ? '#10b981' : 'var(--color-text-primary)'
                         }}>
                           {metrics?.premiumReturnOnCost ? `${metrics.premiumReturnOnCost.toFixed(2)}%` : 'N/A'}
                         </div>
@@ -452,7 +478,7 @@ function App() {
                           Return If Called
                         </div>
                         <div className="text-2xl font-medium" style={{
-                          color: metrics?.returnIfCalled > 0 ? '#10b981' : '#ef4444'
+                          color: metrics?.returnIfCalled && metrics.returnIfCalled > 0 ? '#10b981' : '#ef4444'
                         }}>
                           {metrics?.returnIfCalled ? `${metrics.returnIfCalled.toFixed(2)}%` : 'N/A'}
                         </div>
@@ -466,7 +492,7 @@ function App() {
                           Total Return
                         </div>
                         <div className="text-2xl font-medium" style={{
-                          color: metrics?.totalReturnIfCalled > 0 ? '#10b981' : '#ef4444'
+                          color: metrics?.totalReturnIfCalled && metrics.totalReturnIfCalled > 0 ? '#10b981' : '#ef4444'
                         }}>
                           {metrics?.totalReturnIfCalled !== undefined ? `${metrics.totalReturnIfCalled > 0 ? '+' : ''}${metrics.totalReturnIfCalled.toFixed(2)}%` : 'N/A'}
                         </div>

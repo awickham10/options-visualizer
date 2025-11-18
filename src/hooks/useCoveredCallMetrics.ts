@@ -1,13 +1,6 @@
 import { useMemo } from 'react'
 import { logger } from '../lib/logger'
-
-interface OptionCell {
-  expDate?: Date | string
-  bid?: number
-  currentPrice?: number
-  strike?: number
-  [key: string]: unknown
-}
+import type { OptionCell } from '../components/ModernOptionsChart'
 
 interface CoveredCallMetrics {
   daysToExpiration: number

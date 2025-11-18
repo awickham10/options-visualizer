@@ -1,7 +1,17 @@
-import React from 'react'
+export type OptionType = 'call' | 'put'
 
-export function CallPutToggle({ optionType, onTypeChange }) {
-  const types = [
+interface OptionTypeOption {
+  id: OptionType
+  label: string
+}
+
+export interface CallPutToggleProps {
+  optionType: OptionType
+  onTypeChange: (type: OptionType) => void
+}
+
+export function CallPutToggle({ optionType, onTypeChange }: CallPutToggleProps) {
+  const types: OptionTypeOption[] = [
     { id: 'call', label: 'Calls' },
     { id: 'put', label: 'Puts' }
   ]

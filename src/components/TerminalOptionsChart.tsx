@@ -1,13 +1,49 @@
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
+import { StockBar } from '../types'
 
-export function TerminalOptionsChart({ data, symbol }) {
-  const chartData = useMemo(() => {
+interface HistoricalPoint {
+  date: Date
+  price: number
+}
+
+interface MockOption {
+  strike: number
+  expDate: Date
+  price: string
+  isITM: boolean
+}
+
+interface ChartData {
+  historical: HistoricalPoint[]
+  strikes: number[]
+  expirations: Date[]
+  optionsGrid: MockOption[][]
+  currentPrice: number
+  minPrice: number
+  maxPrice: number
+}
+
+interface ChartLine {
+  line: string
+  strikeIdx: number
+  isCurrentPriceLine: boolean
+  strike: number
+  row: number
+}
+
+export interface TerminalOptionsChartProps {
+  data: StockBar[]
+  symbol: string
+}
+
+export function TerminalOptionsChart({ data, symbol }: TerminalOptionsChartProps) {
+  const chartData = useMemo((): ChartData | null => {
     if (!data || data.length === 0) return null
 
     const currentPrice = data[data.length - 1].close
 
     // Get historical prices
-    const historical = data.map(bar => ({
+    const historical: HistoricalPoint[] = data.map(bar => ({
       date: new Date(bar.time),
       price: bar.close
     }))
@@ -25,14 +61,14 @@ export function TerminalOptionsChart({ data, symbol }) {
     // Generate strike prices (price levels for Y-axis)
     const numStrikes = 20
     const strikeStep = (extendedMax - extendedMin) / numStrikes
-    const strikes = []
+    const strikes: number[] = []
     for (let i = 0; i <= numStrikes; i++) {
       strikes.push(extendedMin + (i * strikeStep))
     }
 
     // Generate future expiration dates (4 weeks)
     const lastDate = historical[historical.length - 1].date
-    const expirations = []
+    const expirations: Date[] = []
     for (let i = 1; i <= 4; i++) {
       const expDate = new Date(lastDate)
       expDate.setDate(lastDate.getDate() + (i * 7))
@@ -40,7 +76,7 @@ export function TerminalOptionsChart({ data, symbol }) {
     }
 
     // Generate mock options prices for each strike and expiration
-    const optionsGrid = strikes.map(strike => {
+    const optionsGrid: MockOption[][] = strikes.map(strike => {
       return expirations.map((expDate, expIdx) => {
         const intrinsic = Math.max(0, currentPrice - strike)
         const timeValue = Math.random() * 5 * (1 - expIdx * 0.15)
@@ -79,7 +115,7 @@ export function TerminalOptionsChart({ data, symbol }) {
 
   // Sample historical data for display
   const historicalWidth = 50 // characters
-  const sampledHistorical = []
+  const sampledHistorical: HistoricalPoint[] = []
   for (let i = 0; i < historicalWidth; i++) {
     const idx = Math.floor((i / historicalWidth) * historical.length)
     if (idx < historical.length) {
@@ -87,15 +123,15 @@ export function TerminalOptionsChart({ data, symbol }) {
     }
   }
 
-  const getPriceRow = (price) => {
+  const getPriceRow = (price: number): number => {
     const normalized = (price - minPrice) / (maxPrice - minPrice)
     const row = strikes.length - 1 - Math.round(normalized * (strikes.length - 1))
     return Math.max(0, Math.min(strikes.length - 1, row))
   }
 
   // Build the chart
-  const buildChart = () => {
-    const lines = []
+  const buildChart = (): ChartLine[] => {
+    const lines: ChartLine[] = []
 
     strikes.forEach((strike, strikeIdx) => {
       const row = strikes.length - 1 - strikeIdx

@@ -29,7 +29,7 @@ router.get('/bars/:symbol', async (req: Request, res: Response) => {
   } catch (error) {
     const reqLogger = (req as RequestWithLogger).logger || logger
     const err = error as Error
-    reqLogger.error({ error: err.message, stack: err.stack, symbol: req.params.symbol }, 'Error fetching bars')
+    reqLogger.error(`Error fetching bars for ${req.params.symbol}: ${err.message}`)
     res.status(500).json({ success: false, error: err.message })
   }
 })
@@ -46,7 +46,7 @@ router.get('/quote/:symbol', async (req: Request, res: Response) => {
   } catch (error) {
     const reqLogger = (req as RequestWithLogger).logger || logger
     const err = error as Error
-    reqLogger.error({ error: err.message, stack: err.stack, symbol: req.params.symbol }, 'Error fetching quote')
+    reqLogger.error(`Error fetching quote for ${req.params.symbol}: ${err.message}`)
     res.status(500).json({ success: false, error: err.message })
   }
 })

@@ -79,7 +79,7 @@ export function useOptionsData(
       const allExpirations = new Set<string>()
 
       // First pass: collect ALL expirations and strikes
-      Object.entries(optionsData).forEach(([contractSymbol, optData]) => {
+      Object.entries(optionsData).forEach(([contractSymbol]) => {
         const parsed = parseContractSymbol(contractSymbol)
         if (!parsed) return
 
@@ -148,7 +148,7 @@ export function useOptionsData(
         }
 
         const optionKey = optionType === 'C' ? 'call' : 'put'
-        const greeks = optData.greeks || {}
+        const greeks = optData.greeks
         optionsByExp[expDate][strike][optionKey] = {
           strike,
           expDate: expirationDate,
@@ -165,10 +165,10 @@ export function useOptionsData(
           openInterest: optData.openInterest || 0,
           isITM: isITM(strike, currentPrice, optionType),
           // Greeks from API
-          delta: greeks.delta || 0,
-          gamma: greeks.gamma || 0,
-          theta: greeks.theta || 0,
-          vega: greeks.vega || 0,
+          delta: greeks?.delta || 0,
+          gamma: greeks?.gamma || 0,
+          theta: greeks?.theta || 0,
+          vega: greeks?.vega || 0,
           currentPrice // Add current price for calculations
         }
       })

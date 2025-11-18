@@ -1,13 +1,41 @@
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
+import { StockBar } from '../types'
 
-export function UnifiedOptionsChart({ data, symbol }) {
-  const chartData = useMemo(() => {
+interface HistoricalPoint {
+  date: Date
+  price: number
+}
+
+interface MockOption {
+  strike: number
+  expDate: Date
+  price: string
+  isITM: boolean
+}
+
+interface ChartData {
+  historical: HistoricalPoint[]
+  strikes: number[]
+  expirations: Date[]
+  optionsGrid: MockOption[][]
+  currentPrice: number
+  minPrice: number
+  maxPrice: number
+}
+
+export interface UnifiedOptionsChartProps {
+  data: StockBar[]
+  symbol: string
+}
+
+export function UnifiedOptionsChart({ data, symbol }: UnifiedOptionsChartProps) {
+  const chartData = useMemo((): ChartData | null => {
     if (!data || data.length === 0) return null
 
     const currentPrice = data[data.length - 1].close
 
     // Get historical prices
-    const historical = data.map(bar => ({
+    const historical: HistoricalPoint[] = data.map(bar => ({
       date: new Date(bar.time),
       price: bar.close
     }))
@@ -20,7 +48,7 @@ export function UnifiedOptionsChart({ data, symbol }) {
 
     // Generate strike prices (extend range for options)
     const strikeStep = Math.round(priceRange / 20) || 1
-    const strikes = []
+    const strikes: number[] = []
     const baseStrike = Math.floor(minPrice / strikeStep) * strikeStep
     for (let i = 0; i <= 25; i++) {
       strikes.push(baseStrike + (i * strikeStep))
@@ -28,7 +56,7 @@ export function UnifiedOptionsChart({ data, symbol }) {
 
     // Generate future expiration dates (weekly for next 4 weeks)
     const lastDate = historical[historical.length - 1].date
-    const expirations = []
+    const expirations: Date[] = []
     for (let i = 1; i <= 4; i++) {
       const expDate = new Date(lastDate)
       expDate.setDate(lastDate.getDate() + (i * 7))
@@ -36,7 +64,7 @@ export function UnifiedOptionsChart({ data, symbol }) {
     }
 
     // Generate mock options prices
-    const optionsGrid = expirations.map((expDate, expIdx) => {
+    const optionsGrid: MockOption[][] = expirations.map((expDate, expIdx) => {
       return strikes.map(strike => {
         const intrinsic = Math.max(0, currentPrice - strike)
         const timeValue = Math.random() * 5 * (1 - expIdx * 0.15) // Decay over time
@@ -87,12 +115,12 @@ export function UnifiedOptionsChart({ data, symbol }) {
   const optionsWidth = chartWidth * 0.3
 
   // Price scale
-  const priceScale = (price) => {
+  const priceScale = (price: number): number => {
     return marginTop + chartHeight - ((price - minPrice) / (maxPrice - minPrice)) * chartHeight
   }
 
   // Time scale for historical data
-  const timeScale = (index, total) => {
+  const timeScale = (index: number, total: number): number => {
     return marginLeft + (index / (total - 1)) * historicalWidth
   }
 

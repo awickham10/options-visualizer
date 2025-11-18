@@ -1,14 +1,25 @@
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
+import { StockBar } from '../types'
 
-export function OptionsGrid({ currentPrice, historicalData }) {
+interface MockOptionsData {
+  strikes: number[]
+  expirations: Date[]
+}
+
+export interface OptionsGridProps {
+  currentPrice: number | null
+  historicalData: StockBar[]
+}
+
+export function OptionsGrid({ currentPrice }: OptionsGridProps) {
   // Generate mock options data based on current price
   // In a real scenario, this would come from options chain API
-  const optionsData = useMemo(() => {
-    if (!currentPrice) return []
+  const optionsData = useMemo((): MockOptionsData => {
+    if (!currentPrice) return { strikes: [], expirations: [] }
 
     const basePrice = currentPrice
-    const strikes = []
-    const expirations = []
+    const strikes: number[] = []
+    const expirations: Date[] = []
 
     // Generate strike prices (5% above and below current price)
     for (let i = -5; i <= 5; i++) {
@@ -36,7 +47,7 @@ export function OptionsGrid({ currentPrice, historicalData }) {
   }
 
   // Calculate intrinsic value for calls (simplified)
-  const calculateCallValue = (strike) => {
+  const calculateCallValue = (strike: number): string => {
     const intrinsic = Math.max(0, currentPrice - strike)
     const timeValue = Math.random() * 5 // Mock time value
     return (intrinsic + timeValue).toFixed(2)
