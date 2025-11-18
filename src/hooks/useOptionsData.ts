@@ -2,23 +2,63 @@ import { useMemo } from 'react'
 import { parseContractSymbol, isITM } from '../lib/optionsUtils'
 import { formatISODate } from '../lib/formatters'
 import { logger } from '../lib/logger'
+import { StockBar, OptionsData } from '../types'
+
+interface HistoricalDataPoint {
+  date: Date
+  price: number
+}
+
+interface OptionCell {
+  strike: number
+  expDate: Date
+  contractSymbol: string
+  optionType: 'C' | 'P'
+  price: number
+  bid: number
+  ask: number
+  bidSize: number
+  askSize: number
+  lastPrice: number
+  volume: number
+  impliedVolatility: number
+  openInterest: number
+  isITM: boolean
+  delta: number
+  gamma: number
+  theta: number
+  vega: number
+  currentPrice: number
+  pcRatioVolume?: number
+  pcRatioOI?: number
+}
+
+interface ProcessedOptionsData {
+  historical: HistoricalDataPoint[]
+  strikes: number[]
+  expirations: Date[]
+  optionsGrid: (OptionCell | null)[][]
+  currentPrice: number
+  minPrice: number
+  maxPrice: number
+  noOptionsData?: boolean
+}
 
 /**
  * Custom hook to process and structure options chain data
  * Extracts business logic from ModernOptionsChart component
- *
- * @param {Array} data - Historical stock price data
- * @param {Object} optionsData - Raw options data from API
- * @param {string} optionType - Type of option to display ('call' or 'put')
- * @returns {Object} Processed options data including grid, strikes, expirations, and price info
  */
-export function useOptionsData(data, optionsData, optionType) {
+export function useOptionsData(
+  data: StockBar[],
+  optionsData: OptionsData | null,
+  optionType: 'call' | 'put'
+): ProcessedOptionsData | null {
   return useMemo(() => {
     if (!data || data.length === 0) return null
 
     const currentPrice = data[data.length - 1].close
 
-    const historical = data.map(bar => ({
+    const historical: HistoricalDataPoint[] = data.map(bar => ({
       date: new Date(bar.time),
       price: bar.close
     }))
@@ -34,9 +74,9 @@ export function useOptionsData(data, optionsData, optionType) {
     // Process real options data (API returns object with contract symbols as keys)
     if (optionsData && typeof optionsData === 'object' && Object.keys(optionsData).length > 0) {
       // Group options by expiration date and strike price
-      const optionsByExp = {}
-      const allStrikes = new Set()
-      const allExpirations = new Set()
+      const optionsByExp: Record<string, Record<number, { call?: OptionCell; put?: OptionCell }>> = {}
+      const allStrikes = new Set<number>()
+      const allExpirations = new Set<string>()
 
       // First pass: collect ALL expirations and strikes
       Object.entries(optionsData).forEach(([contractSymbol, optData]) => {
@@ -53,7 +93,7 @@ export function useOptionsData(data, optionsData, optionType) {
       })
 
       // Second pass: populate options data and track puts/calls separately
-      const putCallData = {} // Track puts and calls separately for P/C ratio
+      const putCallData: Record<string, { putVolume: number; callVolume: number; putOI: number; callOI: number }> = {}
       let putCount = 0
       let callCount = 0
 
@@ -191,12 +231,12 @@ export function useOptionsData(data, optionsData, optionType) {
 
           // Add P/C ratios to both call and put if they exist
           if (optionsByExp[expDateStr][strike].call) {
-            optionsByExp[expDateStr][strike].call.pcRatioVolume = pcRatioVolume
-            optionsByExp[expDateStr][strike].call.pcRatioOI = pcRatioOI
+            optionsByExp[expDateStr][strike].call!.pcRatioVolume = pcRatioVolume
+            optionsByExp[expDateStr][strike].call!.pcRatioOI = pcRatioOI
           }
           if (optionsByExp[expDateStr][strike].put) {
-            optionsByExp[expDateStr][strike].put.pcRatioVolume = pcRatioVolume
-            optionsByExp[expDateStr][strike].put.pcRatioOI = pcRatioOI
+            optionsByExp[expDateStr][strike].put!.pcRatioVolume = pcRatioVolume
+            optionsByExp[expDateStr][strike].put!.pcRatioOI = pcRatioOI
           }
         }
       })
@@ -241,7 +281,7 @@ export function useOptionsData(data, optionsData, optionType) {
 
       // Build options grid aligned with strikes and expirations
       // Filter by selected option type (call or put)
-      const optionsGrid = strikes.map(strike => {
+      const optionsGrid: (OptionCell | null)[][] = strikes.map(strike => {
         return expirations.map(expDate => {
           const expKey = formatISODate(expDate)
           const optionData = optionsByExp[expKey]?.[strike]

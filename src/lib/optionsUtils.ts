@@ -8,6 +8,24 @@
 
 import { logger } from './logger'
 
+type OptionType = 'C' | 'P'
+type Moneyness = 'ITM' | 'ATM' | 'OTM'
+
+export interface ParsedContract {
+  symbol: string
+  expirationDate: Date
+  optionType: OptionType
+  strike: number
+  contractSymbol: string
+}
+
+export interface OptionData {
+  strike: number
+  expDate: Date | string
+  optionType: OptionType
+  [key: string]: unknown
+}
+
 /**
  * Regular expression for validating and parsing OCC option contract symbols
  * Groups: [symbol, dateYYMMDD, C/P, strikePriceInteger]
@@ -16,26 +34,8 @@ export const OCC_CONTRACT_REGEX = /^([A-Z]+)(\d{6})([CP])(\d{8})$/
 
 /**
  * Parse an OCC options contract symbol into its components
- *
- * @param {string} contractSymbol - OCC contract symbol (e.g., "AAPL251219C00150000")
- * @returns {Object|null} Parsed contract data or null if invalid
- * @returns {string} return.symbol - Underlying stock symbol
- * @returns {Date} return.expirationDate - Expiration date
- * @returns {string} return.optionType - 'C' for call, 'P' for put
- * @returns {number} return.strike - Strike price as decimal
- * @returns {string} return.contractSymbol - Original contract symbol
- *
- * @example
- * parseContractSymbol('AAPL251219C00150000')
- * // Returns: {
- * //   symbol: 'AAPL',
- * //   expirationDate: Date(2025-12-19),
- * //   optionType: 'C',
- * //   strike: 150.00,
- * //   contractSymbol: 'AAPL251219C00150000'
- * // }
  */
-export function parseContractSymbol(contractSymbol) {
+export function parseContractSymbol(contractSymbol: string): ParsedContract | null {
   if (!contractSymbol || typeof contractSymbol !== 'string') {
     return null
   }
@@ -76,7 +76,7 @@ export function parseContractSymbol(contractSymbol) {
     return {
       symbol,
       expirationDate,
-      optionType,
+      optionType: optionType as OptionType,
       strike,
       contractSymbol
     }
@@ -88,29 +88,15 @@ export function parseContractSymbol(contractSymbol) {
 
 /**
  * Validate if a string is a valid OCC contract symbol
- *
- * @param {string} contractSymbol - Contract symbol to validate
- * @returns {boolean} True if valid OCC contract symbol
- *
- * @example
- * isValidContractSymbol('AAPL251219C00150000') // true
- * isValidContractSymbol('INVALID') // false
  */
-export function isValidContractSymbol(contractSymbol) {
+export function isValidContractSymbol(contractSymbol: string): boolean {
   return parseContractSymbol(contractSymbol) !== null
 }
 
 /**
  * Format a contract symbol as a human-readable string
- *
- * @param {string} contractSymbol - OCC contract symbol
- * @returns {string} Formatted string (e.g., "AAPL Dec 19, 2025 $150.00 Call")
- *
- * @example
- * formatContractSymbol('AAPL251219C00150000')
- * // Returns: "AAPL Dec 19, 2025 $150.00 Call"
  */
-export function formatContractSymbol(contractSymbol) {
+export function formatContractSymbol(contractSymbol: string): string {
   const parsed = parseContractSymbol(contractSymbol)
   if (!parsed) {
     return contractSymbol
@@ -129,18 +115,8 @@ export function formatContractSymbol(contractSymbol) {
 
 /**
  * Determine if an option is in-the-money (ITM)
- *
- * @param {number} strike - Strike price
- * @param {number} currentPrice - Current underlying price
- * @param {string} optionType - 'C' for call, 'P' for put
- * @returns {boolean} True if option is ITM
- *
- * @example
- * isITM(150, 155, 'C') // true (call is ITM when current > strike)
- * isITM(150, 145, 'C') // false (call is OTM when current < strike)
- * isITM(150, 145, 'P') // true (put is ITM when current < strike)
  */
-export function isITM(strike, currentPrice, optionType) {
+export function isITM(strike: number, currentPrice: number, optionType: OptionType | string): boolean {
   if (typeof strike !== 'number' || typeof currentPrice !== 'number') {
     return false
   }
@@ -157,17 +133,8 @@ export function isITM(strike, currentPrice, optionType) {
 /**
  * Determine if an option is at-the-money (ATM)
  * Uses a tolerance threshold for practical purposes
- *
- * @param {number} strike - Strike price
- * @param {number} currentPrice - Current underlying price
- * @param {number} tolerance - Percentage tolerance (default 0.5%)
- * @returns {boolean} True if option is ATM within tolerance
- *
- * @example
- * isATM(150, 150.50, 0.5) // true (within 0.5% tolerance)
- * isATM(150, 155, 0.5) // false (outside tolerance)
  */
-export function isATM(strike, currentPrice, tolerance = 0.005) {
+export function isATM(strike: number, currentPrice: number, tolerance: number = 0.005): boolean {
   if (typeof strike !== 'number' || typeof currentPrice !== 'number') {
     return false
   }
@@ -180,18 +147,8 @@ export function isATM(strike, currentPrice, tolerance = 0.005) {
 
 /**
  * Determine option moneyness category
- *
- * @param {number} strike - Strike price
- * @param {number} currentPrice - Current underlying price
- * @param {string} optionType - 'C' for call, 'P' for put
- * @returns {string} 'ITM', 'ATM', or 'OTM'
- *
- * @example
- * getMoneyness(150, 155, 'C') // 'ITM'
- * getMoneyness(150, 150.50, 'C') // 'ATM'
- * getMoneyness(150, 145, 'C') // 'OTM'
  */
-export function getMoneyness(strike, currentPrice, optionType) {
+export function getMoneyness(strike: number, currentPrice: number, optionType: OptionType | string): Moneyness {
   if (isATM(strike, currentPrice)) {
     return 'ATM'
   }
@@ -203,15 +160,8 @@ export function getMoneyness(strike, currentPrice, optionType) {
 
 /**
  * Calculate days to expiration (DTE)
- *
- * @param {Date} expirationDate - Option expiration date
- * @param {Date} currentDate - Current date (defaults to now)
- * @returns {number} Days until expiration (rounded down)
- *
- * @example
- * calculateDTE(new Date('2025-12-19')) // Number of days from now until Dec 19, 2025
  */
-export function calculateDTE(expirationDate, currentDate = new Date()) {
+export function calculateDTE(expirationDate: Date, currentDate: Date = new Date()): number {
   if (!(expirationDate instanceof Date) || isNaN(expirationDate.getTime())) {
     return 0
   }
@@ -225,15 +175,13 @@ export function calculateDTE(expirationDate, currentDate = new Date()) {
 
 /**
  * Validate option data object has required fields
- *
- * @param {Object} option - Option data object
- * @returns {boolean} True if all required fields present
  */
-export function isValidOptionData(option) {
+export function isValidOptionData(option: unknown): option is OptionData {
   if (!option || typeof option !== 'object') {
     return false
   }
 
+  const opt = option as Record<string, unknown>
   const requiredFields = ['strike', 'expDate', 'optionType']
-  return requiredFields.every(field => option[field] !== undefined && option[field] !== null)
+  return requiredFields.every(field => opt[field] !== undefined && opt[field] !== null)
 }

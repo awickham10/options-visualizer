@@ -1,27 +1,52 @@
 import { useMemo } from 'react'
 import { logger } from '../lib/logger'
 
+interface OptionCell {
+  expDate?: Date | string
+  bid?: number
+  currentPrice?: number
+  strike?: number
+  [key: string]: unknown
+}
+
+interface CoveredCallMetrics {
+  daysToExpiration: number
+  premium: number
+  annualizedReturn?: number
+  premiumReturnOnCost?: number
+  returnIfCalled?: number
+  totalReturnIfCalled?: number
+  currentPosition?: number
+  currentPositionAnnualized?: number
+  downsideProtection?: number
+  downsideProtectionPercent?: number
+  breakeven?: number
+  breakevenPercent?: number
+  usingCostBasis?: boolean
+}
+
 /**
  * Custom hook to calculate covered call financial metrics
  * Extracts covered call calculation logic from App component
- *
- * @param {Object} cell - Option contract data
- * @param {number} userCostBasis - User's purchase price for the underlying stock
- * @returns {Object|null} Calculated metrics or null if no cell data
  */
-export function useCoveredCallMetrics(cell, userCostBasis = null) {
+export function useCoveredCallMetrics(
+  cell: OptionCell | null,
+  userCostBasis: number | null = null
+): CoveredCallMetrics | null {
   return useMemo(() => {
     if (!cell) return null
 
-    // Validate required fields
-    if (!cell.expDate || !cell.bid || !cell.currentPrice || !cell.strike) {
+    // Validate required fields - check for undefined/null but allow 0
+    if (!cell.expDate || cell.bid === undefined || cell.bid === null ||
+        cell.currentPrice === undefined || cell.currentPrice === null ||
+        cell.strike === undefined || cell.strike === null) {
       logger.warn('Missing required fields for covered call metrics:', cell)
       return null
     }
 
     const today = new Date()
     const expDate = new Date(cell.expDate)
-    const daysToExpiration = Math.max(0, Math.ceil((expDate - today) / (1000 * 60 * 60 * 24)))
+    const daysToExpiration = Math.max(0, Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
 
     // For covered calls, you SELL the call, so use bid price (what you receive)
     const premium = cell.bid
