@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react'
 import { TrendingUp, Search, Activity } from 'lucide-react'
 import { ModernOptionsChart } from './components/ModernOptionsChart'
 import { PriceChart } from './components/PriceChart'
-import { useWebSocket } from './hooks/useWebSocket'
 import { useCoveredCallMetrics } from './hooks/useCoveredCallMetrics'
 import { formatPrice, formatDate, formatGreek, formatIV } from './lib/formatters'
 import { logger } from './lib/logger'
@@ -14,7 +13,6 @@ function App() {
   const [optionsData, setOptionsData] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [isStreaming, setIsStreaming] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [selectedCell, setSelectedCell] = useState(null)
   const [costBasis, setCostBasis] = useState(null) // User's purchase price
@@ -23,57 +21,6 @@ function App() {
 
   // Cache for full option contract details
   const optionDetailsCache = useRef({})
-
-  // WebSocket hook for real-time data streaming
-  const { connectWebSocket, disconnect } = useWebSocket({
-    onStockBar: (data) => {
-      // Add new bar to historical data
-      setHistoricalData(prev => {
-        const newData = [...prev, {
-          time: data.time,
-          open: data.open,
-          high: data.high,
-          low: data.low,
-          close: data.close,
-          volume: data.volume
-        }]
-        // Keep last 100 bars
-        return newData.slice(-100)
-      })
-      setLastUpdated(new Date().toISOString())
-    },
-    onOptionsSnapshot: (data) => {
-      setOptionsData(data)
-      setLastUpdated(new Date().toISOString())
-    },
-    onError: (error) => {
-      setError(error)
-    },
-    onSubscribed: (symbol) => {
-      logger.info(`Subscribed to ${symbol}`)
-    },
-    setIsStreaming
-  })
-
-  // Check streaming status on mount
-  useEffect(() => {
-    const checkHealth = async () => {
-      try {
-        const response = await fetch('/api/health')
-        const data = await response.json()
-        // Update streaming status but don't block the app
-        setIsStreaming(data.streaming || false)
-      } catch (err) {
-        logger.error('Health check failed:', err)
-      }
-    }
-
-    checkHealth()
-    // Check health every 30 seconds
-    const interval = setInterval(checkHealth, 30000)
-
-    return () => clearInterval(interval)
-  }, [])
 
 
   const fetchStockData = async () => {
@@ -86,14 +33,21 @@ function App() {
     setError(null)
 
     try {
-      // Fetch historical data first
-      const barsResponse = await fetch(`/api/bars/${symbol.toUpperCase()}?limit=100`)
+      const symbolUpper = symbol.toUpperCase()
+
+      // Fetch both historical data and options data in parallel
+      const [barsResponse, optionsResponse] = await Promise.all([
+        fetch(`/api/bars/${symbolUpper}?limit=100`),
+        fetch(`/api/options/${symbolUpper}`)
+      ])
+
       const barsData = await barsResponse.json()
+      const optionsDataResult = await optionsResponse.json()
 
       if (barsData.success) {
         setHistoricalData(barsData.data)
-        setCurrentSymbol(symbol.toUpperCase())
-        setLastUpdated(barsData.timestamp || new Date().toISOString())
+        setCurrentSymbol(symbolUpper)
+        setLastUpdated(new Date().toISOString())
 
         // Set cost basis to current price by default
         if (barsData.data && barsData.data.length > 0) {
@@ -101,8 +55,13 @@ function App() {
           setCostBasis(currentPrice)
         }
 
-        // Connect to WebSocket for real-time updates
-        connectWebSocket(symbol.toUpperCase())
+        // Set options data if available
+        if (optionsDataResult.success && optionsDataResult.data) {
+          setOptionsData(optionsDataResult.data)
+        } else {
+          setOptionsData([])
+          logger.warn('No options data available:', optionsDataResult.error)
+        }
       } else {
         setError(barsData.error || 'Failed to fetch data')
       }
@@ -222,21 +181,13 @@ function App() {
                 Market Visualization
               </p>
             </div>
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex items-center gap-3">
-                <div className={`w-1.5 h-1.5 ${isStreaming ? 'animate-pulse' : ''}`} style={{
-                  background: isStreaming ? 'var(--color-accent)' : 'var(--color-text-tertiary)'
-                }} />
-                <span className="text-xs uppercase tracking-[0.15em] font-medium" style={{ color: 'var(--color-text-secondary)' }}>
-                  {isStreaming ? 'Live' : 'Static'}
-                </span>
-              </div>
-              {lastUpdated && (
+            {lastUpdated && (
+              <div className="flex flex-col items-end gap-2">
                 <div className="text-[10px] tracking-[0.1em] uppercase" style={{ color: 'var(--color-text-tertiary)' }}>
-                  {new Date(lastUpdated).toLocaleTimeString()}
+                  Last Updated: {new Date(lastUpdated).toLocaleTimeString()}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Search */}
